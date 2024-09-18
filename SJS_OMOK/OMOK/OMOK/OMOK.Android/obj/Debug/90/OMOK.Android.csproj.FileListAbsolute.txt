@@ -1,0 +1,6 @@
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\MonoAndroid,Version=v9.0.AssemblyAttributes.cs
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\googsvcsjson\values\goog_svcs_json.xml
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\build.props
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\adb.props
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\OMOK.Android.csproj.AssemblyReference.cache
+C:\work\blessnhs2\SJS_OMOK\OMOK\OMOK\OMOK.Android\obj\Debug\90\_VerifyXamarinAndroidSupportVersions.stamp
