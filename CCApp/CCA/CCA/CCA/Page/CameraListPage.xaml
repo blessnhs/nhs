@@ -1,0 +1,71 @@
+﻿<rg1:PopupPage
+    xmlns:rg1="clr-namespace:Rg.Plugins.Popup.Pages;assembly=Rg.Plugins.Popup"
+    x:Class="CCA.Page.CameraListPage"
+    xmlns="http://xamarin.com/schemas/2014/forms"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:rg="http://rotorgames.com">
+    <rg:PopupPage.Resources>
+        <ResourceDictionary>
+            <Style x:Key="EntryStyle" TargetType="Entry">
+                <Setter Property="PlaceholderColor" Value="#9cdaf1" />
+                <Setter Property="TextColor" Value="#7dbbe6" />
+            </Style>
+        </ResourceDictionary>
+    </rg:PopupPage.Resources>
+    <rg:PopupPage.Animation>
+        <rg:ScaleAnimation
+            DurationIn="700"
+            EasingIn="BounceOut"
+            PositionIn="Bottom"
+            PositionOut="Center"
+            ScaleIn="1"
+            ScaleOut="0.7" />
+    </rg:PopupPage.Animation>
+
+   
+
+    <StackLayout x:Name="stacklayout" VerticalOptions="Center" HorizontalOptions="Center" BackgroundColor="white">
+
+        <Button
+               x:Name="limited"
+               Margin="10,5"
+               BackgroundColor="#7dbbe6"
+               Clicked="OnBuy"
+               HorizontalOptions="Fill"
+               Text="무제한등록구입">
+
+        </Button>
+
+        <ListView x:Name="listView">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <ViewCell>
+                        <ViewCell.View>
+                            <Grid x:Name="Item">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4*"/>
+                                    <ColumnDefinition Width="4*"/>
+                                    <ColumnDefinition Width="2*"/>
+                                </Grid.ColumnDefinitions>
+                                <Label Grid.Column="0" Text="{Binding Content}" TextColor="Black"/>
+                                <Label Grid.Column="1" Text="{Binding Status}"  TextColor="Black"/>
+                                <!--<Button Grid.Column="2" Text="Del"  Clicked="OnDelete" CommandParameter="{Binding VarMachineId}" />-->
+                            </Grid>
+                        </ViewCell.View>
+                    </ViewCell>
+                  
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <Button
+               x:Name="closebtn"
+               Margin="10,5"
+               BackgroundColor="#7dbbe6"
+               Clicked="OnClose"
+               HorizontalOptions="Fill"
+               Text="Close">
+
+        </Button>
+    </StackLayout>
+</rg1:PopupPage>

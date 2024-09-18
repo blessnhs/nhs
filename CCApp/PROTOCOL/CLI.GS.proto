@@ -1,0 +1,199 @@
+﻿syntax = "proto2";
+
+import "Enum.proto";
+import "Structure.proto";
+
+option optimize_for = SPEED;
+
+message VERSION_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_VERSION_REQ  ];
+}
+
+message LOGIN_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_LOGIN_REQ ];
+
+    required string  var_uid                = 2;
+    required string  var_token              = 3;
+
+    required string     var_cam_name = 4;
+    required string     var_machine_id        = 5;	
+
+    required string     var_ip        = 6;	
+}
+
+message CREATE_ROOM_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_CREATE_ROOM_REQ ];
+    required string var_name                  = 2;
+   
+}
+
+message ENTER_ROOM_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_ENTER_ROOM_REQ ];
+    required int32       var_room_number        = 2;
+}
+
+message LEAVE_ROOM_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_LEAVE_ROOM_REQ ];
+    required int32      var_id                  = 2;
+    required int32       var_room_number        = 3;
+}
+
+message ROOM_LIST_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_ROOM_LIST_REQ ];
+}
+
+message ROOM_PASS_THROUGH_REQ
+{
+    optional PROTOCOL   id                        = 1 [default = ID_PKT_ROOM_PASS_THROUGH_REQ    ];
+    required string     var_message    	     = 2;
+    required int32       var_message_int         = 3;
+    required int32       var_room_number        = 4;
+    required string       var_time        = 5;
+}
+
+
+message NOTICE_REQ
+{
+    optional PROTOCOL   id                        = 1 [default = ID_PKT_NOTICE_REQ    ];
+}
+
+//등록된 카메라가 전송요청한 유저에게 전송
+message BITMAP_MESSAGE_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_BITMAP_MESSAGE_REQ ];
+    repeated bytes     var_message         = 2;
+    required int32       var_room_number        = 3;	
+    required int32       var_type        = 4;	
+    repeated int64       var_to_player_id   = 5;
+    required int32       var_width        = 6;	
+    required int32       var_height        = 7;	
+}
+//등록된 카메라가 전송요청한 유저에게 전송
+message AUDIO_MESSAGE_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_AUDIO_MESSAGE_REQ ];
+    repeated bytes     var_message         = 2;
+    required int32       var_room_number        = 3;
+    repeated int64       var_to_player_id   = 4;
+}
+
+//등록된 카메라에게 해당유저에게 전송 중지를 보낸다. 
+message STOP_STREAM_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_STOP_STREAM_REQ ];
+    required int64       var_to_player_id  = 2;
+}
+
+//뷰어가 등록된 카메라에게 스트림 전송을 요청한다.
+message CAMERA_WAKE_UP_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_CAMERA_WAKE_UP_REQ ];
+    required int32       var_type        = 2;	
+    required int32       var_room_number        = 3;	
+    required int64       var_to_player_id       = 4;	
+    required string       var_machine_id       = 5;	
+}
+
+message PRAY_MESSAGE_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_PRAY_MESSAGE_REQ ];
+}
+
+message PRAY_MESSAGE_REG_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_PRAY_MESSAGE_REG_REQ ];
+    optional string     var_message         = 2;
+}
+
+message QNA_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_QNA_REQ ];
+    optional string     var_message         = 2;
+}
+
+message MAIL_LIST_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_MAIL_LIST_REQ ];
+}
+
+message REG_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_REG_REQ ];
+     required int32     var_id         = 2;
+}
+
+message CLIENT_LOGOUT_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_CLIENT_LOGOUT_REQ ];
+}
+
+message CAMERA_CONTROL_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_CAMERA_CONTROL_REQ ];
+    required CameraControlType       var_type        = 2	;
+    required string     var_machine_id         = 3;	
+    required int64     var_player_id         = 4;	
+}
+
+message MPEG2TS_MESSAGE_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_MPEG2TS_MESSAGE_REQ ];
+    repeated bytes     var_message         = 2;
+    required int32       var_room_number        = 3;	
+    required int32       var_type        = 4;	
+}
+
+
+message REG_CAMERA_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_REG_CAMERA_REQ ];
+    required string     var_cam_name = 2;
+    required string     var_machine_id        = 3;	
+}
+
+
+message CAMERA_LIST_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_CAMERA_LIST_REQ ];
+}
+
+message MACHINE_STATUS_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_MACHINE_STATUS_REQ ];
+    repeated int64       var_to_player_id   = 5;
+    required int32       var_battery        = 4;	
+}
+
+
+message VERIFY_PURCHASE_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_VERIFY_PURCHASE_REQ ];
+    required string     var_package_name = 2;
+    required string     var_purchase_id        = 3;	
+    required string     var_token        = 4;	
+}
+
+message DEL_CAMERA_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_DEL_CAMERA_REQ ];
+    required string     var_machine_id        = 2;	
+}
+
+message RECONNECT_REQ
+{
+    optional PROTOCOL   id                  = 1 [default = ID_PKT_RECONNECT_REQ ];
+    required string     var_machine_id        = 2;	
+    required string     var_machine_name        = 3;	
+    required string     var_token        = 4;
+    required int64     var_index        = 5;	
+    required string     var_email        = 6;
+ required string     var_name        = 7;
+
+
+}

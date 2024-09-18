@@ -1,0 +1,103 @@
+Integrating In-App Purchases in Mobile Apps
+
+James Montemagno
+
+February 2nd, 20171
+icon_128Developers often need to integrate monetization to generate revenue when developing mobile apps. There are several ways to monetize apps, but at some point you may want to introduce In-App Purchases, or IAPs, into your app. IAPs can be used in several ways that could apply to your apps, such as adding features, removing ads, or buying in-game currency. Let’s take an in-depth look at IAPs and how to add them to mobile apps.
+
+Types of In-App Purchases
+As I mentioned above, there are several types of IAPs that can be used for iOS and Android that may apply to your mobile application. Here’s a quick overview:
+
+Consumable: Items that are used up over the course of the application’s life and can be purchased multiple times. Examples are in-game currency, extra health, and one-time services such as transcription.
+Non-Consumable: Items that the user owns indefinitely and can only be purchased once. Examples are books, game levels, and additional app functionality.
+Subscriptions: A recurring purchase that can be auto-renewable or non-renewable that occur or expire after a set amount of time (usually in month chunks).
+I’ll focus on the most common type, Non-Consumable, in this blog post.
+
+Getting Started
+Before we can start implementing code, we have to make sure our apps are set up properly to start accepting purchases. Each platform handles this differently, but I’ll cover the basics. I highly recommend following the full documentation on In-App Purchases for iOS and Android for more information.
+
+You must first ensure that your application is set up in both iTunes Connect and the Google Play Developer Console.
+
+iOS Setup
+Any application that wants to use In-App Purchases require a unique app identifier (no wildcards allowed) for the provision profile and will set the IAP functionality automatically. Once the app has been created, we can head to the Features section, create a new IAP, and select “Non-Consumable.” We’ll then fill in additional information, such as the Product ID (a unique identifier we will use in code), price, and description of the product.
+
+IAP
+
+Once this IAP has been set up, we’re ready to start integrating.
+
+Android Setup
+Android is a bit more complex, as we can’t add a new IAP for our application until we publish a version of our application that contains the com.android.vending.BILLING permission. We can add this by inserting the following:
+
+…line between the…
+
+...
+…in the AndroidManifest.xml.
+
+The app can then be published in the Alpha or Beta channel in the Google Developer Console, and a new IAP can be added under the “In-App Purchase” section for the application. It’s important to create the IAP as a managed product.
+
+IAPAndroid
+
+We’ll then be taken to a page where the details for the IAP are filled in. We must save the IAP and set it to Active or it won’t work when we implement code.
+
+IAPAndroid2
+
+Making Purchases
+With the applications set up, we’re now able to integrate code. Each platform has a different mechanism for handling purchases, but they each do similar things, which is why I worked with Jon Dick from our components team to create a new plugin for Xamarin that we call In-App Billing Plugin for Xamarin and Windows, which simplifies the entire purchase process. The Plugin handles purchases, subscriptions, consumption, and product information from a cross-platform API; if you need custom flows, I highly recommend reading through full documentation on In-App Purchases for iOS and Android.
+
+To get started, we’ll install the In-App Billing Plugin (Plugin.InAppBilling) in all of our projects, including our portable class library and mobile app projects:
+
+AddNuGet
+
+Additional Android Setup
+Android requires just a little bit more set up. We’ll add the following code in the Activity that will be making the purchase call or the MainActivity (for Xamarin.Forms):
+
+
+protected override void OnActivityResult(int requestCode, Result resultCode, Intent data)
+{
+    base.OnActivityResult(requestCode, resultCode, data);
+    InAppBillingImplementation.HandleActivityResult(requestCode, resultCode, data);
+}
+Now, in our app code or shared code, we can go ahead and make the purchase with just a few simple calls to connect to the billing service and attempt to make the purchase:
+
+
+try
+{
+    var productId = "mysku";
+
+    var connected = await CrossInAppBilling.Current.ConnectAsync();
+
+    if (!connected)
+    {
+        //Couldn't connect to billing, could be offline, alert user
+        return;
+    }
+
+    //try to purchase item
+    var purchase = await CrossInAppBilling.Current.PurchaseAsync(productId, ItemType.InAppPurchase, "apppayload");
+    if(purchase == null)
+    {
+        //Not purchased, alert the user
+    }
+    else
+    {
+        //Purchased, save this information
+        var id = purchase.Id;
+        var token = purchase.PurchaseToken;
+        var state = purchase.State;
+    }
+}
+catch (Exception ex)
+{
+    //Something bad has occurred, alert user
+}
+finally
+{
+    //Disconnect, it is okay if we never connected
+    await CrossInAppBilling.Current.DisconnectAsync();
+}
+And that’s it! At this point we could store this information in our application settings or report it to our backend services on a successful purchase. To test this new code, we’ll need to run it on a physical device built and signed with the provisioning profile, or keystore, for the application.
+
+inappdone
+
+Learn More
+There’s a lot more to IAPs, including consumption and product information that are exposed in the In-App Billing Plugins APIs. You can find out more about this in the README file on the GitHub project. That same documentation will walk you through a full setup, testing, and trouble shooting guide to integrating In-App Purchases.
