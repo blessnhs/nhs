@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Antioch.MainPage" BackgroundColor="White">
+
+    <Grid BackgroundColor="White">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="0.5*"/>
+            <RowDefinition Height="9.5*"/>
+        </Grid.RowDefinitions>
+
+        <!--first row-->
+        <Grid x:Name="NavigationButtons" Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0" BackgroundColor="White">
+                <Image x:Name="symbol_image"/>
+            </Grid>
+
+            <Grid Grid.Column="2" BackgroundColor="White" Grid.ColumnSpan="1">
+                <StackLayout Orientation="Horizontal" HorizontalOptions="End" Padding="0,0,0,0">
+
+                    <ImageButton x:Name="ico_mail" 
+                    BackgroundColor="Transparent"
+                    WidthRequest="40"
+                    HeightRequest="40"
+                    FlexLayout.AlignSelf="Center"
+                    FlexLayout.Grow="1"
+                    Clicked="ico_mail_clicked"
+                    Aspect="AspectFit">
+                    </ImageButton>
+
+
+                    <ImageButton x:Name="ico_notify" 
+                    BackgroundColor="Transparent"
+                    WidthRequest="40"
+                    HeightRequest="40"
+                    FlexLayout.AlignSelf="Center"
+                    FlexLayout.Grow="1"
+                    Clicked="ico_alarm_clicked"
+                    Aspect="AspectFit"> 
+                    </ImageButton>
+
+                    <ImageButton x:Name="ico_setting" 
+                    BackgroundColor="Transparent"
+                    WidthRequest="40"
+                    HeightRequest="40"
+                    FlexLayout.AlignSelf="Center"
+                    FlexLayout.Grow="1"
+                    Clicked="ico_setting_clicked"
+                    Aspect="AspectFit">
+                    </ImageButton>
+
+                </StackLayout>
+            </Grid>
+            
+        </Grid>
+
+        <!--second row-->
+        <Grid x:Name="ContentViews" Grid.Row="1">
+            <!--<ContentViews:View1 x:Name="View1" IsVisible="True"/>
+            <ContentViews:View2 x:Name="View2" IsVisible="False"/>
+            <ContentViews:View3 x:Name="View3" IsVisible="False"/>-->
+        </Grid>
+    </Grid>
+
+</ContentPage>

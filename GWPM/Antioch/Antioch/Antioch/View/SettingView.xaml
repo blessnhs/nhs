@@ -1,0 +1,66 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ContentView xmlns="http://xamarin.com/schemas/2014/forms" 
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml" xmlns:ViewModels="clr-namespace:Antioch.View.Chat.ViewModels"
+             x:Class="Antioch.View.SettingView">
+  <ContentView.Content>
+        <StackLayout Orientation="Vertical" Spacing="10" Padding="20,20,20,20">
+            <ScrollView>
+                <Grid>
+                    <Grid.RowDefinitions BackgroundColor="White">
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Frame BorderColor="Gray" Grid.Row="0" Grid.Column="0">
+                        <StackLayout  BackgroundColor="White">
+                            <Label x:Name="TextSizeLabel" Text="  Font Size " HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black" />
+                            <Slider x:Name="TextSizeSlider" Maximum="50" Minimum="0" BackgroundColor="Gray"/>
+                        </StackLayout>
+                    </Frame>
+
+                    <Frame BorderColor="Gray" Grid.Row="1" Grid.Column="0">
+                        <StackLayout VerticalOptions="StartAndExpand">
+                            <Label Text="KJV  Bible" />
+                            <Switch x:Name="KJVOption"  IsToggled="true" Toggled="OnToggledKJV"/>
+
+                            <Button  x:Name="VersionBtn" Text="{Binding Version}" Clicked="OnCheckVersion"></Button>
+
+                        </StackLayout>
+
+                      
+                    </Frame>
+
+
+                    <Frame BorderColor="Gray" Grid.Row="2" Grid.Column="0">
+                        <StackLayout VerticalOptions="StartAndExpand">
+                            <Label Text="It is registered as the first entered information." TextColor="Red" />
+                            <Label Text="id(ex hyunsoo)" />
+                            <Entry x:Name="usernameEntry" Placeholder="username" Text="{Binding Id}"/>
+                            <Label Text="password 4 numbers (ex 1155)" />
+                            <Entry x:Name="passwordEntry" IsPassword="true" />
+                            <Button  x:Name="loginbutton" Text="{Binding BtnMessage}" Clicked="login_btn"/>
+                            <Label x:Name="messageLabel"  Text="{Binding Message}"/>
+                        </StackLayout>
+                    </Frame>
+
+
+                    <Frame BorderColor="Gray" Grid.Row="3" Grid.Column="0">
+                        <StackLayout  BackgroundColor="White">
+                            <Label  Text="성경전서 개역한글판의 저작권은" HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black"/>
+                            <Label  Text=" ( 재 ) 대한성서공회에 있습니다" HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black"/>
+                            <Label  Text="Last Build 2021-07-26 " HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black" />
+                            <Label  Text="admin E-mail: blessnhs@nate.com" HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black" />
+                        </StackLayout>
+                    </Frame>
+
+                </Grid>
+            </ScrollView>
+        </StackLayout>
+
+    </ContentView.Content>
+</ContentView>

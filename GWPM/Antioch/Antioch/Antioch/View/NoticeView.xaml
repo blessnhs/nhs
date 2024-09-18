@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ContentView xmlns="http://xamarin.com/schemas/2014/forms" 
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Antioch.View.NoticeView">
+    <StackLayout Orientation="Vertical" Spacing="10" Padding="20,20,20,20">
+        <ScrollView>
+            <Grid x:Name="main_grid">
+                <Grid.RowDefinitions BackgroundColor="White">
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Frame BorderColor="Gray" Grid.Row="0" Grid.Column="0">
+                    <StackLayout  BackgroundColor="White" Padding="3,3,3,3">
+                        <Label x:Name="share_labal" Text=" Share " HorizontalTextAlignment="Center" VerticalTextAlignment="Center"  TextColor="Black" />
+                    </StackLayout>
+                </Frame>
+
+                <Frame BorderColor="Gray" Grid.Row="0" Grid.Column="1">
+                    <StackLayout  BackgroundColor="White"  >
+                        <Label x:Name="label_jubo" Text=" Bulletin" HorizontalTextAlignment="Center" VerticalTextAlignment="Center" TextColor="Black" Padding="3,3,3,3"/>
+                    </StackLayout>
+                </Frame>
+
+                <Frame BorderColor="Gray" Grid.Row="1" Grid.Column="0" VerticalOptions="Start" Grid.ColumnSpan="2">
+                    <StackLayout BackgroundColor= "White" Padding="3,3,3,3">
+                        <Label  Text=" Week Time Table " HorizontalTextAlignment="Center" VerticalTextAlignment="Center" TextColor="Black"/>
+                        <Frame BorderColor="Black"  Padding="3,3,3,3" >
+                            <Label x:Name="label_mon" Text=" Mon " HorizontalTextAlignment="Center" TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black"  Padding="3,3,3,3">
+                            <Label x:Name="label_tue" Text=" Thu " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black" Padding="3,3,3,3">
+                            <Label x:Name="label_wed" Text=" Wed " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black" Padding="3,3,3,3">
+                            <Label x:Name="label_thu" Text=" Thur " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black" Padding="3,3,3,3">
+                            <Label x:Name="label_fri" Text=" Fri " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black" Padding="3,3,3,3">
+                            <Label x:Name="label_sat" Text=" Sat " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame BorderColor="Black" Padding="3,3,3,3">
+                            <Label x:Name="label_sun" Text=" Sun " HorizontalTextAlignment="Center"  TextColor="Black" VerticalTextAlignment="Center"/>
+                        </Frame>
+                    </StackLayout>
+                </Frame>
+
+                <Frame BorderColor="Gray"  CornerRadius="5"  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2">
+                    <StackLayout BackgroundColor="White" Padding="3,3,3,3">
+                        <Label x:Name="notify" Text="Sub Notice" HorizontalTextAlignment="Start" VerticalTextAlignment="Center" TextColor="Black"/>
+                    </StackLayout>
+                </Frame>
+
+                <Frame BorderColor="Gray"  CornerRadius="5"  Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2">
+                    <StackLayout BackgroundColor="White" Padding="3,3,3,3">
+                        <Label x:Name="worship" Text="worship commissioner" HorizontalTextAlignment="Start" VerticalTextAlignment="Center" TextColor="Black"/>
+                    </StackLayout>
+                </Frame>
+
+            </Grid>
+        </ScrollView>
+    </StackLayout>
+</ContentView>

@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ContentView xmlns="http://xamarin.com/schemas/2014/forms" 
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Antioch.View.QnAView">
+  <ContentView.Content>
+        <ScrollView>
+            <StackLayout>
+                <Grid x:Name="mainGrid" ColumnSpacing="0" RowSpacing="1" IsClippedToBounds="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1*" />
+                        <RowDefinition Height="8*" />
+                        <RowDefinition Height="1*" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="10*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Label  x:Name="QNSLabel" Text="Any Question" FontSize="Large" TextColor="Black" Grid.Row="0" Grid.Column="0" HorizontalOptions="Center"/>
+
+                    <Editor x:Name="contents" Text=""  BackgroundColor="Gray" Grid.Row="1" Grid.Column="0" />
+
+                    <StackLayout Orientation="Horizontal" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" HorizontalOptions="Center">
+                        <Button  x:Name="sendbutton" Text="Send" Clicked="OnSendButtonClicked" Style="{StaticResource buttonStyle2}" Padding="20,20,20,20"/>
+                        <Button  x:Name="closebutton" Text="Close" Clicked="OnCloseButtonClicked" Style="{StaticResource buttonStyle2}" Padding="20,20,20,20"/>
+                    </StackLayout>
+                </Grid>
+            </StackLayout>
+
+        </ScrollView>
+    </ContentView.Content>
+</ContentView>
