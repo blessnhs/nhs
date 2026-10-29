@@ -1,0 +1,8 @@
+﻿@page "/signin-google"
+@using Microsoft.AspNetCore.Authorization
+
+@inject NavigationManager NavigationManager
+
+@{
+    NavigationManager.NavigateTo("api/auth/google/login", true);
+}

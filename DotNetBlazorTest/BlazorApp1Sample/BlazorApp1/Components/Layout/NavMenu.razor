@@ -1,0 +1,76 @@
+﻿@using GoogleOAuthSample.Google
+@using Microsoft.AspNetCore.Components.Authorization
+@rendermode InteractiveServer
+@inject NavigationManager NavigationManager
+
+@code {
+
+    private void Login()
+    {
+        NavigationManager.NavigateTo("api/auth/google/login");
+    }
+
+    private void Logout()
+    {
+        NavigationManager.NavigateTo("signout-google");
+        Google.Data = null;
+    }
+}
+
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid" div style="color: white;">
+        @if (Google.Data != null)
+        {
+            <div>
+                <center>
+                <img src="@Google.Data.ImageUrl" alt="사용자 프로필" />
+                <br />
+                    @Google.Data.FirstName@Google.Data.LastName
+                <br />
+                    @Google.Data.Email
+                <br />
+                <button class="btn btn-primary" @onclick="Logout">로그아웃</button>
+                </center>
+            </div>
+
+           
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="Login">로그인</button>
+
+        }
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="notify">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Notify
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="bible">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Bible
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="Plan">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Plan
+            </NavLink>
+        </div>
+    </nav>
+</div>
+

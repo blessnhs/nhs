@@ -1,0 +1,69 @@
+﻿@page "/plan"
+@rendermode InteractiveServer
+<h3>테이블 내용 변경하기</h3>
+
+<button class="btn btn-primary mb-3" @onclick="StartButton">내용 변경하기</button>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>번호</th>
+            <th>이름</th>
+            <th>역할</th>
+        </tr>
+    </thead>
+    <tbody>
+        <div class="mb-3">
+            <label asp-for="Occurred" class="control-label"></label>
+            <input type="date" asp-for="BirthDate" class="form-control" @bind="selectTime">
+            <span asp-validation-for="Occurred" class="text-danger"></span>
+        </div>
+
+        <div class="form-group col-15">
+            <select id="select_old" class="form-control" data-toggle="tooltip" data-trigger="hover" data-placement="top"
+                    data-title="Status" @bind="BibleName">
+                @foreach (var item in BibleInfo.ListTestament)
+                {
+                    <option value="@item">@item</option>
+                }
+            </select>
+        </div>
+
+        <label for="startDate">begin chapter</label>
+        <input type="number"
+               name="age"
+               min="1"
+               max="100">
+
+        <label for="startDate">하루에 몇장씩</label>
+        <input type="number" @bind="ChapterCount"
+               name="age"
+               min="1"
+               max="100">
+
+        <button class="btn btn-primary" @onclick=StartButton>시작</button>
+                        
+
+</tbody>
+</table>
+
+@code {
+    private DateTime selectTime = DateTime.Now;
+    private int ChapterCount = 1;
+    private string BibleName = "";
+
+    private void OnSelectionChanged(ChangeEventArgs e)
+    {
+        BibleName = e.Value?.ToString() ?? "";
+       
+    }
+
+    private void StartButton()
+    {
+        DateTime saveDateTime = selectTime;
+       
+        SQLLiteDB.InsertBibleReadPlan(selectTime, BibleName,ChapterCount);
+    }
+
+   
+}

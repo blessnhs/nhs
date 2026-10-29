@@ -1,0 +1,7 @@
+﻿@page "/signout-google"
+
+@inject NavigationManager NavigationManager
+
+@{
+	NavigationManager.NavigateTo("api/auth/google/logout", true);
+}

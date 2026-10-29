@@ -1,0 +1,210 @@
+﻿@page "/bible"
+@rendermode InteractiveServer
+@inject NavigationManager NavigationManager
+
+<PageTitle>Bible</PageTitle>
+
+<p role="status"> @Current_Title</p>
+<tr>
+    <td>
+        <button class="btn btn-primary" @onclick="PrevButton">이전</button>
+    </td>
+    <td>
+        <button class="btn btn-primary" @onclick="NextButton">다음</button>
+    </td>
+
+    <td>
+        <div class="form-group col-15">
+            <select id="select_old" class="form-control" data-toggle="tooltip" data-trigger="hover" data-placement="top"
+                    data-title="Status" @onchange="OnSelectionChanged">
+                @foreach (var item in BibleInfo.ListOldTestament)
+                {
+                    <option value="@item">@item</option>
+                }
+
+                @code 
+                {
+                   
+                }
+
+            </select>
+        </div>
+    </td>
+    <td>
+        <div class="form-group col-15">
+            <select id="selelct_new" class="form-control" data-toggle="tooltip" data-trigger="hover" data-placement="top"
+                data-title="Status" @onchange="OnSelectionChanged">
+                @foreach (var item in BibleInfo.ListNewTestament)
+                {
+                    <option value="@item">@item</option>
+                }
+
+            </select>
+        </div>
+    </td>
+</tr>
+
+@if (current_page == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+           
+        </thead>
+        <tbody role="status">
+            @foreach (var page_curr in current_page)
+            {
+                <tr>
+                    <td>@page_curr.context</td>
+                </tr>
+                <tr>
+                    <td>@page_curr.context_eng</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+
+    private string selectedValue = "";
+
+    private void OnSelectionChanged(ChangeEventArgs e)
+    {
+        selectedValue = e.Value?.ToString() ?? "";
+
+        BibleName = selectedValue;
+        Chapter = 1;
+        Verse = 1;
+
+        GetCurrentPageText();
+
+    }
+
+    private Page[]? current_page;
+    private int Chapter = 1;
+    private int Verse = 1;
+    private string BibleName = "창세기";
+
+    private string Current_Title="";
+
+    private void NextButton()
+    {
+
+        int CurrentMaxChapter = BibleInfo.GetChapterSize(BibleName);
+
+        if (Chapter + 1 <= CurrentMaxChapter)
+        {
+            Chapter += 1;
+        }
+        else
+        {
+            //다음 성경
+            string NextBible = BibleName;
+            int currentPos = 0;
+            foreach (var bible in BibleInfo.List)
+            {
+                if (bible.Name == BibleName)
+                    break;
+
+                currentPos++;
+            }
+
+            if (BibleInfo.List.Count > currentPos + 1)
+            {
+                BibleName = BibleInfo.List[currentPos + 1].Name;
+                Chapter = 1;
+                Verse = 1;
+
+            }
+        }
+        GetCurrentPageText();
+
+    }
+
+    private void PrevButton()
+    {
+        int CurrentMaxChapter = BibleInfo.GetChapterSize(BibleName);
+
+        //최소 1장보다 커야한다.
+        if (Chapter - 1 < 0)
+        {
+            Chapter -= 1;
+        }
+        else
+        {
+            //다음 성경
+            string NextBible = BibleName;
+            int currentPos = 0;
+            foreach (var bible in BibleInfo.List)
+            {
+                if (bible.Name == BibleName)
+                    break;
+
+                currentPos++;
+            }
+
+            if (0 <= (currentPos - 1) && Chapter == 1)
+            {
+                BibleName = BibleInfo.List[currentPos - 1].Name;
+                Chapter = BibleInfo.GetChapterSize(BibleName);
+                Verse = 1;
+            }
+            else
+            {
+                int chapter = Chapter - 1;
+                if (chapter < 1)
+                    chapter = 1;
+
+                BibleName = BibleInfo.List[currentPos].Name;
+                Chapter = chapter;
+                Verse = 1;
+            }
+        }
+
+        GetCurrentPageText();
+    }
+
+    private void GetCurrentPageText()
+    {
+        int verseSize = BibleInfo.GetVerseSize(BibleName, Chapter);
+        int verseSizeEng = BibleInfo.GetVerseSize(BibleName, Chapter, BibleType.KJV);
+
+        int size = verseSize > verseSizeEng ? verseSize : verseSizeEng;
+
+        var new_page = new Page[size];
+
+        for (int i = 0; i < size; i++)
+        {
+            new_page[i] = new Page();
+
+            string Text = BibleInfo.GetContextText(BibleType.KRV, BibleName, Chapter, i + 1);
+
+            string TextEnglish = BibleInfo.GetContextText(BibleType.KJV, BibleName, Chapter, i + 1);
+
+            new_page[i].context = Text;
+            new_page[i].context_eng = TextEnglish;
+        }
+
+        current_page = new_page;
+
+        Current_Title = BibleName + " " + Chapter.ToString() + "장  KRV";
+    }
+
+
+    protected override void OnInitialized()
+    {
+        GetCurrentPageText();
+    }
+
+    private class Page
+    {
+      
+        public string? context { get; set; }
+        public string? context_eng { get; set; }
+      
+    }
+}
