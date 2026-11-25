@@ -1,6 +1,9 @@
 #pragma once
 
 #include "GSSocketBase.h"
+#include "Lock.h"
+
+namespace GSNetwork { namespace GSIocp { class GSIocp; } }
 
 namespace GSNetwork	{ namespace GSSocket	{
 
@@ -9,9 +12,38 @@ namespace GSNetwork	{ namespace GSSocket	{
 #define STATUS_CONNECTED		0x01
 #define STATUS_LISTENED			0x02
 
-class GSSocket : public GSGuard<GSSocket>
+class GSSocket
 {
+private:
+	CGSLock m_SocketLock;
+	GSNetwork::GSIocp::GSIocp* m_Iocp = nullptr;
+
+protected:
+	BOOL SubmitWrite(std::unique_ptr<BYTE[]> data, DWORD length, const SOCKADDR_IN* address = nullptr);
+
+	class CThreadSync
+	{
+	public:
+		explicit CThreadSync(GSSocket& owner) : m_Lock(owner.m_SocketLock)
+		{
+			m_Lock.Enter();
+		}
+
+		~CThreadSync()
+		{
+			m_Lock.Leave();
+		}
+
+		CThreadSync(const CThreadSync&) = delete;
+		CThreadSync& operator=(const CThreadSync&) = delete;
+
+	private:
+		CGSLock& m_Lock;
+	};
+
 public:
+	GSSocket(const GSSocket&) = delete;
+	GSSocket& operator=(const GSSocket&) = delete;
 	GSSocket(VOID);
 	virtual ~GSSocket(VOID);
 
@@ -49,6 +81,7 @@ public:
 	SOCKET			Connect2(LPSTR address, USHORT port);
 
 	SOCKET			GetSocket(VOID);
+	BOOL RegisterIocp(GSNetwork::GSIocp::GSIocp& iocp, ULONG_PTR completionKey);
 	
 	long			ExceptionFilter(LPEXCEPTION_POINTERS pExceptionInfo, char *Info);
 	long			ExceptionFilter(LPEXCEPTION_POINTERS pExceptionInfo, DWORD Info);

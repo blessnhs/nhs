@@ -1,5 +1,9 @@
 #pragma once
 
+#include <mutex>
+#include <vector>
+#include "Lock.h"
+
 #include "Structure.pb.h"
 
 using namespace std;
@@ -42,7 +46,7 @@ public:
 	template<class T>
 	void SendToAll(T& snd)
 	{
-		for each(auto iter in m_PlayerMap)
+		for (const auto& iter : GetPlayerSnapshot())
 		{
 			PlayerPtr pPlayer = iter.second;
 			if (pPlayer == NULL)
@@ -58,7 +62,7 @@ public:
 	template<class T>
 	void SendToAll(T& snd,int PlayerId)
 	{
-		for each (auto iter in m_PlayerMap)
+		for (const auto& iter : GetPlayerSnapshot())
 		{
 			PlayerPtr pPlayer = iter.second;
 			if (pPlayer == NULL)
@@ -79,7 +83,7 @@ public:
 
 	void SendToAll(WORD MainId, BYTE* Data, WORD Length);
 	
-	concurrency::concurrent_unordered_map<DWORD, PLAYER_PTR>		m_PlayerMap;
+	std::vector<std::pair<DWORD, PLAYER_PTR>> GetPlayerSnapshot();
 
 	void AddRoomMessage(RoomMessage msg);
 
@@ -88,7 +92,9 @@ private:
 
 	list<RoomMessage> m_MessageList;
 
-	CRITICAL_SECTION												m_PublicLock;
+	concurrency::concurrent_unordered_map<DWORD, PLAYER_PTR> m_PlayerMap;
+	CGSLock m_PlayerLock;
+	CGSLock m_MessageLock;
 
 };
 

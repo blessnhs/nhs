@@ -258,14 +258,12 @@ public:
 
 		RoomPtr->InsertPlayer(pPlayerPtr);
 
-		pPlayerPtr->m_Char[0].SetRoom(std::get<0>(Request.m_args));
-
 		res.set_var_room_id(std::get<0>(Request.m_args));
 		res.set_var_name(RoomPtr->m_Stock.Name.c_str());
 		SEND_PROTO_BUFFER2(pPlayerPtr->GetFrontSid(), res, pSession)
 
 			//새로 입장한 유저에게 방안의 유저 정보전송
-			for each (auto iter in RoomPtr->m_PlayerMap)
+			for (const auto& iter : RoomPtr->GetPlayerSnapshot())
 			{
 				if (iter.second == NULL)
 					continue;
@@ -287,7 +285,7 @@ public:
 
 
 		//방안의 유저들 에게 새로운 유저 정보를 전송
-		for each (auto iter in RoomPtr->m_PlayerMap)
+		for (const auto& iter : RoomPtr->GetPlayerSnapshot())
 		{
 			if (iter.second == NULL)
 				continue;

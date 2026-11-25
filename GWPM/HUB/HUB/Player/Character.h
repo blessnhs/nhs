@@ -1,5 +1,9 @@
 #pragma once
 
+#include <mutex>
+#include <vector>
+#include "Lock.h"
+
 #include <common.h>
 #include <set>
 
@@ -95,6 +99,7 @@ private:
 
 	BYTE				m_Team;
 
+	CGSLock m_RoomLock;
 	std::set<DWORD>		m_RoomNumbers;
 	
 	Score				m_Score;

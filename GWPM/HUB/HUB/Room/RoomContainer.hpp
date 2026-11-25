@@ -1,6 +1,7 @@
 
 template<template<class T> class CreationPolicy> bool RoomContainer<CreationPolicy>::Add(ROOM_PTR &pObj, PLAYER_PTR player)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	auto iter = m_RoomMap.find(pObj->GetId());
 
 	if(iter == m_RoomMap.end())
@@ -33,6 +34,7 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> bool RoomContainer<CreationPolicy>::Del(ROOM_PTR &pObj, PLAYER_PTR player)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	auto iter = m_RoomMap.find(pObj->GetId());
 
 	if(iter == m_RoomMap.end())
@@ -70,6 +72,7 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> bool RoomContainer<CreationPolicy>::Add2(ROOM_PTR& pObj)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	auto iter = m_RoomMap.find(pObj->GetId());
 
 	if (iter == m_RoomMap.end())
@@ -96,6 +99,7 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> bool RoomContainer<CreationPolicy>::Del2(ROOM_PTR& pObj)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	auto iter = m_RoomMap.find(pObj->GetId());
 
 	if (iter == m_RoomMap.end())
@@ -126,6 +130,7 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Search(INT64 Id)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	auto iter = m_RoomMap.find(Id);
 
 	if(iter == m_RoomMap.end())
@@ -137,13 +142,13 @@ template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<Creation
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::SearchByGameType(WORD Type)
 {
-	for each (auto room in m_RoomMap)
+	for (const auto& room : GetRoomSnapshot())
 	{
-		if (room->second->m_Stock.GameType == Type)
+		if (room.second && room.second->m_Stock.GameType == Type)
 		{
-			if (room->second->GetCurrPlayer() < room->second->m_Stock.MAX_PLAYER)
+			if (room.second->GetCurrPlayer() < room.second->m_Stock.MAX_PLAYER)
 			{
-				return (room->second);
+				return (room.second);
 			}
 		}
 	}
@@ -154,31 +159,21 @@ template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<Creation
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Create()
 {
-	EnterCriticalSection(&m_PublicLock);
-
 	static atomic<int> intAtomic = 1;
 
 	ROOM_PTR PTR =  CreationPolicy<ROOM>().Create();
 
-	PTR->SetId(intAtomic);
-
-	intAtomic.fetch_add(1);
-
-	LeaveCriticalSection(&m_PublicLock);
+	PTR->SetId(intAtomic.fetch_add(1));
 
 	return PTR;
 }
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Create(int room_id,string name)
 {
-	EnterCriticalSection(&m_PublicLock);
-
 	ROOM_PTR PTR = CreationPolicy<ROOM>().Create();
 
 	PTR->SetId(room_id);
 	PTR->m_Stock.Name = name;
-
-	LeaveCriticalSection(&m_PublicLock);
 
 	return PTR;
 }
@@ -188,7 +183,7 @@ template<template<class T> class CreationPolicy> VOID RoomContainer<CreationPoli
 	const int max_count = 10;
 	int currcount = 0;
 
-	for each (auto room in m_RoomMapForLoop)
+	for (const auto& room : GetRoomSnapshot())
 	{
 		if (room.second != NULL)
 		{
@@ -208,14 +203,17 @@ template<template<class T> class CreationPolicy> VOID RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> void RoomContainer<CreationPolicy>::Print()
 {
-	for each (auto room in m_RoomMapForLoop)
+	for (const auto& room : GetRoomSnapshot())
 	{
-		printf("id :%d  name : %s count : %d\n", room.second->GetId(), room.second->m_Stock.Name.c_str(), room.second->m_PlayerMap.size());
+		if (!room.second)
+			continue;
+		printf("id :%d  name : %s count : %d\n", room.second->GetId(), room.second->m_Stock.Name.c_str(), room.second->GetCurrPlayer());
 	}
 }
 
 template<template<class T> class CreationPolicy> int RoomContainer<CreationPolicy>::Count()
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	int count = 0;
 	for each (auto room in m_RoomMapForLoop)
 	{
@@ -226,9 +224,10 @@ template<template<class T> class CreationPolicy> int RoomContainer<CreationPolic
 	return count;
 }
 
-template<template<class T> class CreationPolicy>  const concurrency::concurrent_unordered_map<DWORD, ROOM_PTR>& RoomContainer<CreationPolicy>::GetRoomMap()
+template<template<class T> class CreationPolicy>  std::vector<std::pair<DWORD, ROOM_PTR>> RoomContainer<CreationPolicy>::GetRoomSnapshot()
 {
-	return m_RoomMap;
+	std::lock_guard<CGSLock> lock(m_RoomLock);
+	return {m_RoomMapForLoop.begin(), m_RoomMapForLoop.end()};
 }
 template<template<class T> class CreationPolicy> void RoomContainer<CreationPolicy>::LeaveRoomPlayer(PLAYER_PTR pPlayer,int room_number, bool isdelete = false)
 {

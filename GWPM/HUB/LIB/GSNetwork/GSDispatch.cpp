@@ -1,5 +1,6 @@
 #include "StdAfx.h"
 #include "GSDispatch.h"
+#include <memory>
 
 namespace GSFrames	{	namespace GSDispatch	{
 
@@ -25,15 +26,17 @@ VOID GSDispatch::OnExecuteCallback(VOID *object)
 {
 	_DispatchJob *pJob = (_DispatchJob * )object;
 
-	pJob->Job.Func((LPVOID)&pJob->Job);
+	if (!pJob)
+		return;
 
-	if(pJob != NULL)
-		delete pJob;
+	std::unique_ptr<_DispatchJob> job(pJob);
+	job->Job.Func((LPVOID)&job->Job);
 }
 
 VOID GSDispatch::Exe(_DispatchJob *pJob)
 {
-	PostQueuedCompletionStatus(m_Handle, 0, 0,pJob);
+	if (!PostQueuedCompletionStatus(m_Handle, 0, 0, pJob))
+		delete pJob;
 }
 
 BOOL GSDispatch::Initialize(VOID)
@@ -52,6 +55,11 @@ BOOL GSDispatch::Initialize(VOID)
 	for (DWORD i=0;i<m_WTCnt;i++)
 	{
 		HANDLE WorkerThread = CreateThread(NULL, 0, GSFrames::GSDispatch::WorkerThread2, this, 0, NULL);
+		if (!WorkerThread)
+		{
+			Termination();
+			return FALSE;
+		}
 		m_WTVector.push_back(WorkerThread);
 	}
 
@@ -60,8 +68,16 @@ BOOL GSDispatch::Initialize(VOID)
 
 BOOL GSDispatch::Termination(VOID)
 {
+	bool portClosed = false;
 	for (DWORD i=0;i<m_WTVector.size();i++)
-		PostQueuedCompletionStatus(m_Handle, 0, 0, NULL);
+	{
+		if (!PostQueuedCompletionStatus(m_Handle, 0, 0, NULL))
+		{
+			CloseHandle(m_Handle);
+			portClosed = true;
+			break;
+		}
+	}
 
 	for (DWORD i=0;i<m_WTVector.size();i++)
 	{
@@ -70,8 +86,9 @@ BOOL GSDispatch::Termination(VOID)
 		CloseHandle(m_WTVector[i]);
 	}
 
-	if (m_Handle)
+	if (m_Handle && !portClosed)
 		CloseHandle(m_Handle);
+	m_Handle = NULL;
 
 	m_WTVector.clear();
 
@@ -79,25 +96,23 @@ BOOL GSDispatch::Termination(VOID)
 }
 VOID GSDispatch::WorkerThread2(VOID)
 {
-	BOOL			Successed				= FALSE;
 	DWORD			NumberOfByteTransfered	= 0;
 	VOID			*CompletionKey			= NULL;
 	OVERLAPPED		*Overlapped				= NULL;
-	_DispatchJob	*OverlappedEx			= NULL;
-	VOID			*Object					= NULL;
 
 	while (TRUE)
 	{
-		Successed = GetQueuedCompletionStatus(
+		GetQueuedCompletionStatus(
 			m_Handle,
 			&NumberOfByteTransfered,
 			(PULONG_PTR) &CompletionKey,
 			&Overlapped,
 			INFINITE);
 
-		OverlappedEx	= (_DispatchJob*) Overlapped;
+		if (!Overlapped)
+			break;
 
-		OnExecuteCallback(OverlappedEx);
+		OnExecuteCallback(reinterpret_cast<_DispatchJob*>(Overlapped));
 	}
 }
 

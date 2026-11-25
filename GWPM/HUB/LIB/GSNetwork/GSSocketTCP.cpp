@@ -45,7 +45,7 @@ BOOL GSSocketTCP::GetPeerInfo(LPSTR szAddr, unsigned short &usPort)
 
 BOOL GSSocketTCP::CreateTcpSocket(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (m_Socket)
 		return FALSE;
@@ -62,7 +62,7 @@ BOOL GSSocketTCP::CreateTcpSocket(VOID)
 
 BOOL GSSocketTCP::InitializeReadForIocp(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -109,7 +109,7 @@ BOOL			GSSocketTCP::ReadForIocp(BYTE* PacketBuffer, DWORD DataLength,DWORD Remai
 	//m_PacketBuffer 누적 버퍼
 
 
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -127,7 +127,7 @@ BOOL			GSSocketTCP::ReadForIocp(BYTE* PacketBuffer, DWORD DataLength,DWORD Remai
 
 BOOL			GSSocketTCP::ReadForEventSelect(BYTE *Data, DWORD &DataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -176,61 +176,38 @@ BOOL			GSSocketTCP::ReadForEventSelect(BYTE *Data, DWORD &DataLength)
 
 VOID GSSocketTCP::SetConnected(BOOL bConnected) 
 {
-	CThreadSync Sync; 
+	CThreadSync Sync(*this); 
 	m_bConnected = bConnected; 
 }
 BOOL GSSocketTCP::GetConnected(VOID) 
 { 
-	CThreadSync Sync; 
+	CThreadSync Sync(*this); 
 	return m_bConnected; 
 }
 
 BOOL GSSocketTCP::Write(boost::shared_ptr<WRITE_PACKET_INFO> Packet)
 {
-	return Write(Packet->Data, Packet->DataLength);
+	return Packet && Write(Packet->Data, Packet->DataLength);
 }
 
 BOOL GSSocketTCP::Write(BYTE * Data, DWORD DataLength)
 {
-	CThreadSync Sync;
-
-	if (!m_Socket)
+	if (!Data || !DataLength)
 		return FALSE;
 
-	if (!Data || DataLength <=0)
-		return FALSE;
-	
+	auto copy = std::make_unique<BYTE[]>(DataLength);
+	memcpy(copy.get(), Data, DataLength);
+	return WriteOwned(std::move(copy), DataLength);
+}
 
-	WSABUF	WsaBuf;
-	DWORD	WriteBytes	= 0;
-	DWORD	WriteFlag	= 0;
+BOOL GSSocketTCP::WriteOwned(std::unique_ptr<BYTE[]> data, DWORD length)
+{
+	CThreadSync lock(*this);
+	if (SubmitWrite(std::move(data), length))
+		return TRUE;
 
-	WsaBuf.buf			= (CHAR*)Data;
-	WsaBuf.len			= DataLength;
-
-	m_OLP_REMAIN_COUNT_SND.fetch_add(1);
-
-	OVERLAPPED_EX* m_Write_OLP = new OVERLAPPED_EX;
-	m_Write_OLP->IoType = IO_WRITE;
-	m_Write_OLP->ObjectId = m_ClientId;
-
-	INT		ReturnValue	= WSASend(m_Socket,
-		&WsaBuf,
-		1,
-		&WriteBytes,
-		WriteFlag,
-		&m_Write_OLP->Overlapped,
-		NULL);
-
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
-	{
-		m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
-		Termination();
-
-		return FALSE;
-	}
-
-	return TRUE;
+	Termination();
+	return FALSE;
 }
 
 }	}	}

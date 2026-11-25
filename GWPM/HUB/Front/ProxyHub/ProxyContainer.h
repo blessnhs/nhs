@@ -1,5 +1,8 @@
 #pragma once
 
+#include <mutex>
+#include "Lock.h"
+
 class ProxyHubContainer : public IContainer<GSCLIENT_PTR>, public Singleton<ProxyHubContainer>
 {
 public:
@@ -17,7 +20,9 @@ public:
 
 	GSCLIENT_PTR GetHub(unsigned long id);
 
-	//클라이어언트 맵
+private:
+	CGSLock m_ProxyLock;
+	CGSLock m_ConnectLock;
 	concurrency::concurrent_unordered_map<int, GSCLIENT_PTR> m_Proxy_Map;
 };
 

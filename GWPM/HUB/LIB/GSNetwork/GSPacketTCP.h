@@ -33,6 +33,10 @@ public:
 
 	BOOL m_UseCompress;
 
+private:
+	BOOL ReadPacketLocked(DWORD readLength);
+	BOOL GetPacketLocked();
+
 };
 
 }	}	}	}

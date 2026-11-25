@@ -74,7 +74,6 @@
 
 #include "DB/DBProxy/DBProcess.h"
 #include "./DB/DBProxy/DBProcessContainer.h"
-#include "./DB/DBJob/DBContext.h"
 #include "./ProxyHub/ProxyContainer.h"
 #include "MessageMapDef.h"
 

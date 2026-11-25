@@ -1,5 +1,9 @@
 #pragma once
 
+#include <mutex>
+#include <vector>
+#include "Lock.h"
+
 #include "IGSContainer.h"
 #include "./Player.h"
 
@@ -18,9 +22,6 @@ template<template<class T> class CreationPolicy>
 class PlayerContainer : public IContainer<PlayerPtr>, public CreationPolicy<Player>
 {
 public:
-	PlayerContainer();
-	~PlayerContainer();
-
 	PlayerPtr Create();
 
 	bool Add(PlayerPtr &pObj);
@@ -61,7 +62,8 @@ protected:
 	concurrency::concurrent_unordered_map<INT64, PlayerPtr> m_PlayerMap;
 	concurrency::concurrent_unordered_map<INT64, PlayerPtr> m_PlayerMapForLoop;
 
-	CRITICAL_SECTION										  m_PublicLock;
+	CGSLock m_PlayerLock;
+	std::vector<std::pair<INT64, PlayerPtr>> GetPlayerSnapshot();
 };
 
 

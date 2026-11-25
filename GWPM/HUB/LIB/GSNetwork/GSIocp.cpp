@@ -7,10 +7,17 @@ namespace GSNetwork	{	namespace GSIocp	{
 
 typedef GSNetwork::GSSocket::GSSocket GSSocket;
 
+namespace
+{
+	thread_local GSIocp* currentIocpWorker = nullptr;
+}
+
 DWORD WINAPI WorkerThread(LPVOID parameter)
 {
 	GSIocp *Owner = (GSIocp*) parameter;	
+	currentIocpWorker = Owner;
 	Owner->WorkerThread();
+	currentIocpWorker = nullptr;
 
 	return 0;
 }
@@ -51,18 +58,51 @@ BOOL GSIocp::Initialize(VOID)
 	for (DWORD i=0;i<m_WTCnt;i++)
 	{
 		HANDLE WorkerThread = CreateThread(NULL, 0, GSNetwork::GSIocp::WorkerThread, this, 0, NULL);
-		m_WTVector.push_back(WorkerThread);
+		if (!WorkerThread)
+		{
+			Termination();
+			return FALSE;
+		}
 
+		m_WTVector.push_back(WorkerThread);
 		WaitForSingleObject(m_BeginEvtHandle, INFINITE);
 	}
 
+	{
+		std::unique_lock<std::shared_timed_mutex> lock(m_SubmissionLock);
+		m_AcceptingWrites = true;
+	}
 	return TRUE;
 }
 
 BOOL GSIocp::Termination(VOID)
 {
+	// The owning thread must stop the port after the callback returns.
+	if (currentIocpWorker == this)
+		return FALSE;
+
+	{
+		std::unique_lock<std::shared_timed_mutex> submissions(m_SubmissionLock);
+		m_AcceptingWrites = false;
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		for (const auto& entry : m_PendingWrites)
+			CancelIoEx(reinterpret_cast<HANDLE>(entry.second), entry.first);
+	}
+	{
+		std::unique_lock<std::mutex> pending(m_PendingWritesLock);
+		m_WritesDrained.wait(pending, [this] { return m_PendingWrites.empty(); });
+	}
+
+	bool portClosed = false;
 	for (DWORD i=0;i<m_WTVector.size();i++)
-		PostQueuedCompletionStatus(m_Handle, 0, 0, NULL);
+	{
+		if (!PostQueuedCompletionStatus(m_Handle, 0, 0, NULL))
+		{
+			CloseHandle(m_Handle);
+			portClosed = true;
+			break;
+		}
+	}
 
 	for (DWORD i=0;i<m_WTVector.size();i++)
 	{
@@ -71,13 +111,15 @@ BOOL GSIocp::Termination(VOID)
 		CloseHandle(m_WTVector[i]);
 	}
 
-	if (m_Handle)
+	if (m_Handle && !portClosed)
 		CloseHandle(m_Handle);
+	m_Handle = NULL;
 
 	m_WTVector.clear();
 
 	if (m_BeginEvtHandle)
 		CloseHandle(m_BeginEvtHandle);
+	m_BeginEvtHandle = NULL;
 
 	return TRUE;
 }
@@ -85,15 +127,42 @@ BOOL GSIocp::Termination(VOID)
 
 BOOL GSIocp::RegIocpHandler(SOCKET socket, ULONG_PTR completionKey)
 {
-	if (!socket || !completionKey)
+	std::shared_lock<std::shared_timed_mutex> lock(m_SubmissionLock);
+	if (!m_AcceptingWrites || !m_Handle || socket == INVALID_SOCKET || !completionKey)
 		return FALSE;
 
-	m_Handle = CreateIoCompletionPort((HANDLE) socket, m_Handle, completionKey, 0);
+	return CreateIoCompletionPort((HANDLE)socket, m_Handle, completionKey, 0) != NULL;
+}
 
-	if (!m_Handle)
+BOOL GSIocp::SubmitWrite(SOCKET socket, std::unique_ptr<OVERLAPPED_EX> operation, DWORD length, bool addressed)
+{
+	std::shared_lock<std::shared_timed_mutex> submissions(m_SubmissionLock);
+	if (!m_AcceptingWrites)
 		return FALSE;
 
-	return TRUE;
+	WSABUF buffer{length, reinterpret_cast<char*>(operation->SendBuffer)};
+	OVERLAPPED* overlapped = &operation->Overlapped;
+	const SOCKADDR* address = reinterpret_cast<const SOCKADDR*>(&operation->SendAddress);
+	{
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		m_PendingWrites.emplace(overlapped, socket);
+	}
+	// A worker can dequeue completion before the submitting thread returns.
+	operation.release();
+
+	const int result = addressed
+		? WSASendTo(socket, &buffer, 1, nullptr, 0, address, sizeof(SOCKADDR_IN), overlapped, nullptr)
+		: WSASend(socket, &buffer, 1, nullptr, 0, overlapped, nullptr);
+	if (result == 0 || WSAGetLastError() == WSA_IO_PENDING)
+		return TRUE;
+
+	// Winsock sends no completion for a synchronous submission failure.
+	{
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		m_PendingWrites.erase(overlapped);
+	}
+	operation.reset(reinterpret_cast<OVERLAPPED_EX*>(overlapped));
+	return FALSE;
 }
 
 VOID GSIocp::WorkerThread()
@@ -102,16 +171,13 @@ VOID GSIocp::WorkerThread()
 	DWORD			NumberOfByteTransfered	= 0;
 	VOID			*CompletionKey			= NULL;
 	OVERLAPPED		*Overlapped				= NULL;
-	OVERLAPPED_EX	*OverlappedEx			= NULL;
-	boost::shared_ptr<GSClient>			Object;
+	SetEvent(m_BeginEvtHandle);
 
 	while (TRUE)
 	{
 		try
 		{
 		
-			SetEvent(m_BeginEvtHandle);
-
 			Successed = GetQueuedCompletionStatus(
 				m_Handle,
 				&NumberOfByteTransfered,
@@ -119,52 +185,37 @@ VOID GSIocp::WorkerThread()
 				&Overlapped,
 				INFINITE);
 
-			if (!CompletionKey)
-				continue;
-
-			if(Overlapped == NULL) continue;
-
-	
-			boost::shared_ptr<OVERLAPPED_EX> OverlappedEx((OVERLAPPED_EX*)Overlapped);
-
-	
-			if(Overlapped == NULL && Successed == FALSE)
+			if (!Overlapped)
 			{
-				if(Object != NULL)
-				{
-					OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-				}
+				if (Successed && !CompletionKey)
+					break;
+				if (!Successed && GetLastError() == ERROR_ABANDONED_WAIT_0)
+					break;
+				if (!Successed && GetLastError() == ERROR_INVALID_HANDLE)
+					break;
 				continue;
 			}
 
-			if(Overlapped == NULL) continue;
+			std::unique_ptr<OVERLAPPED_EX> OverlappedEx(reinterpret_cast<OVERLAPPED_EX*>(Overlapped));
+			if (OverlappedEx->IoType == IO_WRITE)
+			{
+				std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+				m_PendingWrites.erase(Overlapped);
+				if (m_PendingWrites.empty())
+					m_WritesDrained.notify_all();
+			}
 
-			if(Successed == FALSE && Overlapped != NULL && Object != NULL)
-			 {
-				DWORD dwError = GetLastError();
-				if(dwError==ERROR_OPERATION_ABORTED || dwError==ERROR_NETNAME_DELETED)
-				{
-				//	if(pCommon->GetSocketStatus() != STATUS_DISCONNECTED)
-					if(Object->GetConnected() ==  TRUE)
-					{
-						OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-						continue;
-					}
-				}
-				
+			if (!CompletionKey)
+				continue;
+			if (!Successed)
+			{
 				OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
 				continue;
 			}
 
-			if (!Successed || (Successed && !NumberOfByteTransfered))
+			if (OverlappedEx->IoType == IO_ACCEPT)
 			{
-				if (OverlappedEx->IoType == IO_ACCEPT)
-					OnConnected(OverlappedEx->ObjectId);
-				else
-				{
-					OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-				}
-
+				OnConnected(OverlappedEx->ObjectId);
 				continue;
 			}
 

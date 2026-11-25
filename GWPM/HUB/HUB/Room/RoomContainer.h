@@ -1,5 +1,9 @@
 #pragma once
 
+#include <mutex>
+#include <vector>
+#include "Lock.h"
+
 #include "./Room.h"
 #include "GS.CLI.pb.h"
 #include "Structure.pb.h"
@@ -8,9 +12,6 @@ template<template<class T> class CreationPolicy>
 class RoomContainer  : public CreationPolicy<ROOM>
 {
 public:
-	RoomContainer(void) { InitializeCriticalSection(&m_PublicLock); }
-	~RoomContainer(void) {	DeleteCriticalSection(&m_PublicLock);	}
-
 	ROOM_PTR Create();
 	ROOM_PTR Create(int room_id, string name);
 
@@ -29,7 +30,7 @@ public:
 
 	int Count();
 
-	const concurrency::concurrent_unordered_map<DWORD, ROOM_PTR>& GetRoomMap();
+	std::vector<std::pair<DWORD, ROOM_PTR>> GetRoomSnapshot();
 
 	void LeaveRoomPlayer(PLAYER_PTR player,int room_number,bool isdelete = false);
 
@@ -50,7 +51,7 @@ protected:
 	concurrency::concurrent_unordered_map<DWORD,ROOM_PTR>		m_RoomMap;
 	concurrency::concurrent_unordered_map<DWORD, ROOM_PTR>		m_RoomMapForLoop;
 
-	CRITICAL_SECTION											m_PublicLock;
+	CGSLock m_RoomLock;
 };
 
 //채널 도입으로 전역 룸 객체는 주석

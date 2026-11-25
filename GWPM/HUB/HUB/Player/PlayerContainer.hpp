@@ -3,18 +3,17 @@
 
 class GSCLIENT;
 
-template<template<class T> class CreationPolicy> PlayerContainer<CreationPolicy>::PlayerContainer()
+template<template<class T> class CreationPolicy>
+std::vector<std::pair<INT64, PlayerPtr>> PlayerContainer<CreationPolicy>::GetPlayerSnapshot()
 {
-	InitializeCriticalSection(&m_PublicLock);
-}
-template<template<class T> class CreationPolicy> PlayerContainer<CreationPolicy>::~PlayerContainer()
-{
-	DeleteCriticalSection(&m_PublicLock);
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
+	return {m_PlayerMapForLoop.begin(), m_PlayerMapForLoop.end()};
 }
 
 
 template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPolicy>::Add2(PlayerPtr& pObj)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	m_PlayerMap[pObj->GetId()] = pObj;
 
 	bool find = false;
@@ -34,9 +33,10 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 
 template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPolicy>::Del2(PlayerPtr& pObj)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	auto iter = m_PlayerMap.find(pObj->GetId());
 
-	if (iter == m_PlayerMap.end())
+	if (iter == m_PlayerMap.end() || iter->second != pObj)
 	{
 		return false;
 	}
@@ -50,7 +50,7 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 	{
 		if (iter->second != NULL)
 		{
-			if (iter->second->GetId() == pObj->GetId())
+			if (iter->second == pObj)
 			{
 				m_PlayerMapForLoop[iter->first] = NULL;
 				return true;
@@ -65,6 +65,7 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 
 template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPolicy>::Add(PlayerPtr &pObj)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	m_PlayerMap[pObj->GetId()] = pObj;
 
 	bool find = false;
@@ -84,10 +85,11 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 
 template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPolicy>::Del(PlayerPtr &pObj)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 
 	auto iter = m_PlayerMap.find(pObj->GetId());
 
-	if(iter == m_PlayerMap.end())
+	if (iter == m_PlayerMap.end() || iter->second != pObj)
 	{
 		return false;
 	}
@@ -102,7 +104,7 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 	{
 		if (iter->second != NULL)
 		{
-			if (iter->second->GetId() == pObj->GetId())
+			if (iter->second == pObj)
 			{
 				m_PlayerMapForLoop[iter->first] = NULL;
 				return true;
@@ -117,6 +119,7 @@ template<template<class T> class CreationPolicy> bool PlayerContainer<CreationPo
 
 template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>::Search(DWORD FrontId, DWORD FrontSid)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	for each (auto player in m_PlayerMap)
 	{
 		if (player.second == NULL)
@@ -133,6 +136,7 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 
 template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>::SearchByFrontSid(DWORD FrontSid)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	for each (auto player in m_PlayerMap)
 	{
 		if (player.second == NULL)
@@ -150,6 +154,7 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 
 template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>::Search(INT64 Id)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	auto iter = m_PlayerMap.find(Id);
 
 	if(iter == m_PlayerMap.end())
@@ -162,6 +167,7 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 
 template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>::SearchBySocketId(DWORD Id)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	for each(auto& iter in m_PlayerMap)
 	{
 		PlayerPtr pPlayer = iter->second;
@@ -177,8 +183,9 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 	return PlayerPtr(0);
 }
 
-template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>:: Search(string flatformid)
+template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<CreationPolicy>::Search(string flatformid)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	for each( auto iter in m_PlayerMap)
 	{
 		PlayerPtr pPlayer = iter.second;
@@ -196,6 +203,7 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 
 template<template<class T> class CreationPolicy> int PlayerContainer<CreationPolicy>::Count()
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	int count = 0;
 	auto iter = m_PlayerMapForLoop.begin();
 
@@ -217,19 +225,19 @@ template<template<class T> class CreationPolicy> PlayerPtr PlayerContainer<Creat
 
 template<template<class T> class CreationPolicy> void PlayerContainer<CreationPolicy>::CheckUserList()
 {
-	for (auto iter = m_PlayerMapForLoop.begin(); iter != m_PlayerMapForLoop.end(); iter++)
+	for (const auto& entry : GetPlayerSnapshot())
 	{
-		if (iter->second == NULL)
+		if (entry.second == NULL)
 			continue;
 
-		WORD SessionId = iter->second->GetPair();
+		WORD SessionId = entry.second->GetPair();
 
 		DWORD CurrentTick = GetTickCount();
 
 		//5분보다 크다
-		if (CurrentTick > iter->second->m_AliveTime + (1000 * 60 * 5))
+		if (CurrentTick > entry.second->m_AliveTime + (1000 * 60 * 5))
 		{
-			PlayerPtr pPlayer = iter->second;
+			PlayerPtr pPlayer = entry.second;
 			if (pPlayer != NULL)
 			{
 				printf("Player Client %lld AliveTime Check \n", pPlayer->GetId());
@@ -266,7 +274,7 @@ template<template<class T> class CreationPolicy> void PlayerContainer<CreationPo
 		GSCLIENT_PTR pSession = SERVER.GetClient(SessionId);
 		if (pSession == NULL)
 		{
-			PlayerPtr pPlayer = iter->second;
+			PlayerPtr pPlayer = entry.second;
 			if (pPlayer != NULL)
 			{
 				printf("Player Client %lld Session mia\n",pPlayer->GetId());			
@@ -317,53 +325,50 @@ template<template<class T> class CreationPolicy> void PlayerContainer<CreationPo
 
 template<template<class T> class CreationPolicy> void PlayerContainer<CreationPolicy>::Print()
 {
-	auto iter = m_PlayerMapForLoop.begin();
-	while(iter != m_PlayerMapForLoop.end())
+	const auto players = GetPlayerSnapshot();
+	for (const auto& entry : players)
 	{
-		if(iter->second != NULL)
+		if(entry.second != NULL)
 		{
-			printf("%s\n",iter->second->m_Account.GetName().c_str());
+			printf("%s\n",entry.second->m_Account.GetName().c_str());
 		}
-		++iter;
 	}
 
 	printf("\nasocket count %d\n",SERVER.GetClientMgr().GetActiveSocketCount());
 
-	printf("Total Count %d\n", m_PlayerMapForLoop.size());
+	printf("Total Count %zu\n", players.size());
 }
 
 template<template<class T> class CreationPolicy> void PlayerContainer<CreationPolicy>::BroadCast(DWORD MainId,DWORD SudbId,byte *Message,WORD Length)
 {
-	auto iter = m_PlayerMapForLoop.begin();
-	while(iter != m_PlayerMapForLoop.end())
+	const auto players = GetPlayerSnapshot();
+	for (const auto& entry : players)
 	{
-		if(iter->second != NULL)
+		if(entry.second != NULL)
 		{
-			GSCLIENT *pPair = SERVER.GetClient(iter->second->GetPair());
+			GSCLIENT *pPair = SERVER.GetClient(entry.second->GetPair());
 			if(pPair != NULL)
 			{
 				pPair->GetTCPSocket()->WritePacket(MainId,SudbId,Message,Length);
 			}
 		}
-		++iter;
 	}
 }
 
 
 template<template<class T> class CreationPolicy> template<class TYPE> void PlayerContainer<CreationPolicy>::BroadCast(TYPE MSG)
 {
-	auto iter = m_PlayerMapForLoop.begin();
-	while(iter != m_PlayerMapForLoop.end())
+	const auto players = GetPlayerSnapshot();
+	for (const auto& entry : players)
 	{
-		if(iter->second != NULL)
+		if(entry.second != NULL)
 		{
-			GSCLIENT* pPair = SERVER.GetClient(iter->second->GetPair());
+			GSCLIENT* pPair = SERVER.GetClient(entry.second->GetPair());
 			if(pPair != NULL)
 			{
 				Sender::Send(pPair,MSG);
 			}
 		}
-		++iter;
 	}
 }
 

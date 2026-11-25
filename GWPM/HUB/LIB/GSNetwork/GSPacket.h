@@ -57,13 +57,11 @@ protected:
 
 	GSFactory<XDATA,true>													m_GSBufferPool;
 
-	GSFactory<WRITE_PACKET_INFO,true>										m_WritePool;
 	std::vector<READ_PACKET_INFO>											m_LastReadPacketInfoVectorForUdp;
 	
 	GSFactory<XDATA,true> &													GetGSBufferPool();
 public:
 #ifndef CLIENT_MODULE
-	Concurrency::concurrent_queue< boost::shared_ptr<WRITE_PACKET_INFO> >			m_WrietQueue;
 	Concurrency::concurrent_queue< boost::shared_ptr<XDATA> >						m_PacketList;
 #endif
 

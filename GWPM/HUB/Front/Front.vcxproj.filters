@@ -66,9 +66,6 @@
     <ClCompile Include="Constructor\Constructor.cpp">
       <Filter>Constructor</Filter>
     </ClCompile>
-    <ClCompile Include="DB\DBJob\DBContext.cpp">
-      <Filter>DB\DBJob</Filter>
-    </ClCompile>
     <ClCompile Include="DB\DBProxy\DBProcess.cpp">
       <Filter>DB\DBProxy</Filter>
     </ClCompile>
@@ -134,9 +131,6 @@
     </ClInclude>
     <ClInclude Include="Constructor\Constructor.h">
       <Filter>Constructor</Filter>
-    </ClInclude>
-    <ClInclude Include="DB\DBJob\DBContext.h">
-      <Filter>DB\DBJob</Filter>
     </ClInclude>
     <ClInclude Include="DB\DBProxy\DBProcess.h">
       <Filter>DB\DBProxy</Filter>

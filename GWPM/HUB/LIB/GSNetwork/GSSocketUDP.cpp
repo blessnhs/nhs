@@ -73,7 +73,7 @@ BOOL GSSocketUDP::Termination(VOID)
 
 BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (m_Socket)
 		return FALSE;
@@ -148,7 +148,7 @@ BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 
 BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -189,7 +189,7 @@ BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 
 BOOL			GSSocketUDP::ReadFromForEventSelect(LPSTR remoteAddress, USHORT &remotePort, BYTE *data, DWORD &dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -267,7 +267,7 @@ VOID GSSocketUDP::SetUdpWriteCompleteEvent(VOID)
 
 BOOL	GSSocketUDP::ReadFromForIocp(LPSTR& remoteAddress, USHORT &remotePort, BYTE *data, DWORD &dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -304,7 +304,7 @@ BOOL	GSSocketUDP::ReadFromForIocp(LPSTR& remoteAddress, USHORT &remotePort, BYTE
 
 BOOL GSSocketUDP::GetRemoteAddressAfterAccept(LPTSTR remoteAddress, USHORT &remotePort)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!remoteAddress)
 		return FALSE;
@@ -333,7 +333,7 @@ BOOL GSSocketUDP::GetRemoteAddressAfterAccept(LPTSTR remoteAddress, USHORT &remo
 
 BOOL			GSSocketUDP::WriteTo(LPCSTR remoteAddress, USHORT remotePort, BYTE *data, DWORD dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -361,54 +361,17 @@ BOOL			GSSocketUDP::WriteTo(LPCSTR remoteAddress, USHORT remotePort, BYTE *data,
 }
 BOOL			GSSocketUDP::WriteTo2(LPSTR remoteAddress, USHORT remotePort, BYTE *data, DWORD dataLength)
 {
-	CThreadSync Sync;
-
-	if (!m_Socket)
+	if (!remoteAddress || !remotePort || !data || !dataLength)
 		return FALSE;
 
-	if (!remoteAddress || remotePort <= 0 || !data || dataLength <=0)
-		return FALSE;
+	SOCKADDR_IN destination{};
+	destination.sin_family = AF_INET;
+	destination.sin_addr.S_un.S_addr = inet_addr(remoteAddress);
+	destination.sin_port = htons(remotePort);
 
-	WSABUF		WsaBuf;
-	DWORD		WriteBytes					= 0;
-	DWORD		WriteFlag					= 0;
-
-	SOCKADDR_IN	RemoteAddressInfo;
-	INT			RemoteAddressInfoSize		= sizeof(RemoteAddressInfo);
-
-	WsaBuf.buf								= (CHAR*) data;
-	WsaBuf.len								= dataLength;
-
-	RemoteAddressInfo.sin_family			= AF_INET;
-	RemoteAddressInfo.sin_addr.S_un.S_addr	= inet_addr(remoteAddress);
-    RemoteAddressInfo.sin_port				= htons(remotePort);
-
-	OVERLAPPED_EX* m_Write_OLP = new OVERLAPPED_EX;
-	m_Write_OLP->IoType = IO_WRITE;
-	m_Write_OLP->ObjectId = m_ClientId;
-
-	m_OLP_REMAIN_COUNT_SND.fetch_add(1);
-
-	INT		ReturnValue	= WSASendTo(m_Socket,
-		&WsaBuf,
-		1,
-		&WriteBytes,
-		WriteFlag,
-		(SOCKADDR*) &RemoteAddressInfo,
-		RemoteAddressInfoSize,
-		&m_Write_OLP->Overlapped,
-		NULL);
-
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
-	{
-		m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
-		Termination();
-
-		return FALSE;
-	}
-
-	return TRUE;
-
+	auto copy = std::make_unique<BYTE[]>(dataLength);
+	memcpy(copy.get(), data, dataLength);
+	return SubmitWrite(std::move(copy), dataLength, &destination);
 }
 
 VOID GSSocketUDP::ReliableUdpThreadCallback(VOID)

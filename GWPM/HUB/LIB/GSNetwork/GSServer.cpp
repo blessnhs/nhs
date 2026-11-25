@@ -77,8 +77,8 @@ bool GSServer::Create(GSArgument arg)
 
 	MAINPROC.Activate(MSG_TYPE_LOG   ,1);
 	
-	BeginTCP();
-	BeginUDP();
+	if (!BeginTCP() || !BeginUDP())
+		return false;
 
 	
 
@@ -138,7 +138,8 @@ VOID GSServer::OnWrote(int client_id, DWORD dataLength)
 	if(pClient->GetCreateType() == TCP)
 		pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 
-	pClient->WriteComplete();
+	else if (pClient->GetCreateType() == UDP)
+		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 }
 
 VOID GSServer::OnConnected(int client_id)
@@ -159,7 +160,7 @@ VOID GSServer::OnConnected(int client_id)
 
 	m_EvtClientId = client_id;
 
-	if (!GSIocp::RegIocpHandler(pClient->GetSocket(), reinterpret_cast<ULONG_PTR>(&m_EvtClientId)))
+	if (!pClient->GetTCPSocket()->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(&m_EvtClientId)))
 	{
 		SYSLOG().Write("Connected exception ...1\n");
 		//이코드에서 그냥 close하면 gsclient는 서버에 접속도 못하는 미아 객체가 됨
@@ -227,6 +228,10 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 
 		OnDisconnected(client_id);
 	}
+	else if (pClient->GetCreateType() == UDP && type == IO_TYPE::IO_WRITE)
+	{
+		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+	}
 }
 
 GSCLIENT_PTR GSServer::GetTcpListen()
@@ -246,7 +251,11 @@ GSClientMgr::GSClientMgr&	GSServer::GetClientMgr()
 
 VOID GSServer::End(VOID)
 {
-	GSIocp::Termination();
+	if (!GSIocp::Termination())
+	{
+		SYSLOG().Write("IOCP shutdown must be requested outside its worker thread\n");
+		return;
+	}
 
 	m_ClientMgr.End();
 
@@ -344,7 +353,7 @@ BOOL GSServer::BeginUDP()
 			return FALSE;
 		}
 
-		if (!GSIocp::RegIocpHandler(UDPListenPort->GetSocket(), reinterpret_cast<ULONG_PTR>(UDPListenPort->GetUDPSocket().get())))
+		if (!UDPListenPort->GetUDPSocket()->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(UDPListenPort->GetUDPSocket().get())))
 		{
 			GSServer::End();
 

@@ -1,5 +1,6 @@
 #include "StdAfx.h"
 #include "GSSocket.h"
+#include "GSIocp.h"
 #include <WinSock2.h>
 
 namespace GSNetwork	{ namespace GSSocket	{
@@ -29,7 +30,7 @@ GSSocket::~GSSocket(VOID)
 
 BOOL GSSocket::Initialize(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	m_bConnected = FALSE;
 
@@ -44,12 +45,13 @@ BOOL GSSocket::Initialize(VOID)
 
 BOOL GSSocket::Termination(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return FALSE;
 
 	closesocket(m_Socket);
+	m_Iocp = nullptr;
 
 	m_Socket					= NULL;
 	return TRUE;
@@ -57,7 +59,7 @@ BOOL GSSocket::Termination(VOID)
 
 BOOL GSSocket::Listen(USHORT port, INT backLog)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (port <= 0 || backLog <= 0)
 		return FALSE;
@@ -105,12 +107,68 @@ BOOL GSSocket::Listen(USHORT port, INT backLog)
 
 SOCKET GSSocket::GetSocket(VOID)
 {
+	CThreadSync Sync(*this);
 	return m_Socket; 
+}
+
+BOOL GSSocket::RegisterIocp(GSNetwork::GSIocp::GSIocp& iocp, ULONG_PTR completionKey)
+{
+	CThreadSync lock(*this);
+	if (!m_Socket || !iocp.RegIocpHandler(m_Socket, completionKey))
+		return FALSE;
+
+	m_Iocp = &iocp;
+	return TRUE;
+}
+
+BOOL GSSocket::SubmitWrite(std::unique_ptr<BYTE[]> data, DWORD length, const SOCKADDR_IN* address)
+{
+	CThreadSync lock(*this);
+	if (!m_Socket || m_Socket == INVALID_SOCKET || !data || !length)
+		return FALSE;
+
+	auto operation = std::make_unique<OVERLAPPED_EX>();
+	operation->IoType = IO_WRITE;
+	operation->ObjectId = m_ClientId;
+	operation->SendBuffer = data.release();
+	if (address)
+		operation->SendAddress = *address;
+
+	if (m_Iocp)
+	{
+		m_OLP_REMAIN_COUNT_SND.fetch_add(1);
+		if (m_Iocp->SubmitWrite(m_Socket, std::move(operation), length, address != nullptr))
+			return TRUE;
+		m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+		return FALSE;
+	}
+
+	// GSClientModule uses WSAEventSelect and has no IOCP worker.
+	const WSAEVENT completed = WSACreateEvent();
+	if (completed == WSA_INVALID_EVENT)
+		return FALSE;
+
+	operation->Overlapped.hEvent =
+		reinterpret_cast<HANDLE>(reinterpret_cast<ULONG_PTR>(completed) | 1);
+	WSABUF buffer{length, reinterpret_cast<char*>(operation->SendBuffer)};
+	DWORD transferred = 0;
+	DWORD flags = 0;
+	const int result = address
+		? WSASendTo(m_Socket, &buffer, 1, &transferred, 0,
+			reinterpret_cast<const SOCKADDR*>(&operation->SendAddress), sizeof(SOCKADDR_IN),
+			&operation->Overlapped, nullptr)
+		: WSASend(m_Socket, &buffer, 1, &transferred, 0, &operation->Overlapped, nullptr);
+	const BOOL success = result == 0 ||
+		(WSAGetLastError() == WSA_IO_PENDING &&
+			WaitForSingleObject(completed, INFINITE) == WAIT_OBJECT_0 &&
+			WSAGetOverlappedResult(m_Socket, &operation->Overlapped, &transferred, FALSE, &flags));
+	WSACloseEvent(completed);
+	return success && transferred == length;
 }
 
 SOCKET GSSocket::Connect2(LPSTR address, USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		m_Socket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);;
@@ -131,10 +189,6 @@ SOCKET GSSocket::Connect2(LPSTR address, USHORT port)
 
 		return FALSE;
 	}
-
-	OVERLAPPED_EX* m_Accept_OLP = new OVERLAPPED_EX;
-	m_Accept_OLP->IoType = IO_ACCEPT;	
-	m_Accept_OLP->ObjectId = m_ClientId;
 
 	struct linger lingerOpt;
 	lingerOpt.l_onoff = 1;
@@ -166,7 +220,7 @@ SOCKET GSSocket::Connect2(LPSTR address, USHORT port)
 
 BOOL GSSocket::Accept(SOCKET listenSocket)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!listenSocket)
 		return FALSE;
@@ -216,7 +270,7 @@ BOOL GSSocket::Accept(SOCKET listenSocket)
 
 BOOL GSSocket::Accept2(SOCKET listenSocket)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!listenSocket)
 		return FALSE;
@@ -261,7 +315,7 @@ BOOL GSSocket::Accept2(SOCKET listenSocket)
 
 BOOL GSSocket::Connect(LPSTR address, USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!address || port <= 0)
 		return FALSE;
@@ -293,7 +347,7 @@ BOOL GSSocket::Connect(LPSTR address, USHORT port)
 
 BOOL GSSocket::GetLocalIP(std::string& ipaddress, int& port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if(!m_Socket)
 		return FALSE;
@@ -328,7 +382,7 @@ BOOL GSSocket::GetLocalIP(std::string& ipaddress, int& port)
 
 USHORT GSSocket::GetLocalPort(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(*this);
 
 	if (!m_Socket)
 		return 0;

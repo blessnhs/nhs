@@ -5,6 +5,7 @@
 
 int  Room::FindPlayerPos(PLAYER_PTR Player)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	int pos = 0;
 	for each (auto iter in m_PlayerMap)
 	{
@@ -25,6 +26,7 @@ int  Room::FindPlayerPos(PLAYER_PTR Player)
 
 bool Room::FindPlayer(PLAYER_PTR Player)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	for each(auto iter in m_PlayerMap)
 	{
 		PlayerPtr pPlayer = iter.second;
@@ -42,18 +44,15 @@ bool Room::FindPlayer(PLAYER_PTR Player)
 
 Room::Room(void) 
 {
-	InitializeCriticalSection(&m_PublicLock);
 }
 
 Room::~Room(void)
 {
-	m_MessageList.clear();
-
-	DeleteCriticalSection(&m_PublicLock);
 }
 
 bool Room::RemovePlayer(PLAYER_PTR Player)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	m_PlayerMap[Player->GetId()] = NULL;
 	Player->m_Char[0].DelRoom(GetId());
 	return FALSE;
@@ -61,6 +60,7 @@ bool Room::RemovePlayer(PLAYER_PTR Player)
 
 bool Room::InsertPlayer(PLAYER_PTR Player)
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	m_PlayerMap[Player->GetId()] = Player;
 	Player->m_Char[0].SetRoom(GetId());
 	return true;
@@ -70,7 +70,7 @@ void Room::SendNewUserInfo(PLAYER_PTR Player,int RoomNumber)
 {
 	if(Player == NULL)	return ;
 
-	for each(auto iter in m_PlayerMap)
+	for (const auto& iter : GetPlayerSnapshot())
 	{
 		PlayerPtr pPlayer = iter.second;
 		if (pPlayer == NULL)
@@ -97,7 +97,7 @@ void Room::SendNewUserInfo(PLAYER_PTR Player,int RoomNumber)
 
 bool Room::IsAllComplete()
 {
-	for each(auto iter in m_PlayerMap)
+	for (const auto& iter : GetPlayerSnapshot())
 	{
 		PlayerPtr pPlayer = iter.second;
 		if (pPlayer == NULL)
@@ -118,6 +118,7 @@ bool Room::IsAllComplete()
 
 WORD Room::GetCurrPlayer()
 {
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
 	int count = 0;
 	for each (auto & player in m_PlayerMap)
 	{
@@ -129,7 +130,7 @@ WORD Room::GetCurrPlayer()
 
 void Room::SendToAll(WORD MainId, BYTE * Data, WORD Length)
 {
-	for each (auto iter in m_PlayerMap)
+	for (const auto& iter : GetPlayerSnapshot())
 	{
 		PlayerPtr pPlayer = iter.second;
 		if (pPlayer == NULL)
@@ -143,12 +144,21 @@ void Room::SendToAll(WORD MainId, BYTE * Data, WORD Length)
 }
 
 
+std::vector<std::pair<DWORD, PLAYER_PTR>> Room::GetPlayerSnapshot()
+{
+	std::lock_guard<CGSLock> lock(m_PlayerLock);
+	return {m_PlayerMap.begin(), m_PlayerMap.end()};
+}
+
 VOID Room::GetMessageList(google::protobuf::RepeatedPtrField<RoomMessage>* List)
 {
-	const int max_count = 10;
-	int currcount = 0;
+	std::list<RoomMessage> messages;
+	{
+		std::lock_guard<CGSLock> lock(m_MessageLock);
+		messages = m_MessageList;
+	}
 
-	for each (auto msg in m_MessageList)
+	for (const auto& msg : messages)
 	{
 		RoomMessage* info = List->Add();
 		info->mutable_var_name()->assign(msg.var_name());
@@ -161,6 +171,7 @@ VOID Room::GetMessageList(google::protobuf::RepeatedPtrField<RoomMessage>* List)
 
 void  Room::AddRoomMessage(RoomMessage msg)
 {
+	std::lock_guard<CGSLock> lock(m_MessageLock);
 	if (m_MessageList.size() > 100)
 		m_MessageList.pop_front();
 
