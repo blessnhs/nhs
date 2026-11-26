@@ -310,37 +310,33 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 		SEND_PROTO_BUFFER(res, pSession, pPlayerPtr->GetFrontSid())
 
 			//새로 입장한 유저에게 방안의 유저 정보전송
-			for each (auto iter in RoomPtr->m_PlayerMap)
+			for (auto& kv : RoomPtr->m_PlayerMap)
 			{
-				if (iter.second == NULL)
+				PlayerPtr pMember = boost::atomic_load(&kv.second);	// [LOCKFIX] 값 경쟁 방지
+				if (pMember == NULL)
 					continue;
 
 				NEW_USER_IN_ROOM_NTY nty;
 				nty.set_var_type(0);
 				RoomUserInfo* userinfo = nty.mutable_var_room_user();
 
-				userinfo->set_var_index(iter.second->GetId());
-				userinfo->set_var_name(iter.second->m_Account.GetName());
+				userinfo->set_var_index(pMember->GetId());
+				userinfo->set_var_name(pMember->m_Account.GetName());
 				userinfo->set_var_room_number(RoomPtr->GetId());
 
-				GSCLIENT_PTR pPair = SERVER.GetClient(iter.second->GetFront());
+				// [확인 필요] 이 루프는 멤버 정보를 "새로 들어온 유저"가 아니라 그 멤버 본인에게 보낸다.
+				// 의도는 pPlayerPtr에게 보내는 것으로 보이지만, 기존 동작을 바꾸지 않기 위해 그대로 두었다.
+				GSCLIENT_PTR pPair = SERVER.GetClient(pMember->GetFront());
 				if (pPair == NULL)
 					continue;
 
-				SEND_PROTO_BUFFER(nty, pPair, iter.second->GetFrontSid())
+				SEND_PROTO_BUFFER(nty, pPair, pMember->GetFrontSid())
 			}
 
 
 		//방안의 유저들 에게 새로운 유저 정보를 전송
-		for each (auto iter in RoomPtr->m_PlayerMap)
 		{
-			if (iter.second == NULL)
-				continue;
-
-			GSCLIENT_PTR pPair = SERVER.GetClient(iter.second->GetFront());
-			if (pPair == NULL)
-				continue;
-
+			// [LOCKFIX] 모든 대상에게 같은 내용 -> 한 번만 직렬화 (Room::SendToAll), 값은 atomic_load로 읽음
 			NEW_USER_IN_ROOM_NTY nty;
 			nty.set_var_type(1);
 			RoomUserInfo* userinfo = nty.mutable_var_room_user();
@@ -348,7 +344,7 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 			userinfo->set_var_index(pPlayerPtr->GetId());
 			userinfo->set_var_room_number(RoomPtr->GetId());
 
-			SEND_PROTO_BUFFER(nty, pPair, iter.second->GetFrontSid())
+			RoomPtr->SendToAll(nty);
 		}
 	}
 	DECLARE_DB_CLASS_END

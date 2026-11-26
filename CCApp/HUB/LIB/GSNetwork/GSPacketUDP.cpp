@@ -18,7 +18,7 @@ GSPacketUDP::~GSPacketUDP(void)
 
 BOOL	GSPacketUDP::Initialize(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	GSPacket::Initialize();
 
@@ -27,12 +27,12 @@ BOOL	GSPacketUDP::Initialize(VOID)
 
 BOOL	GSPacketUDP::Termination(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	GSPacket::Termination();
 
 #ifndef CLIENT_MODULE
-	m_PacketList.clear();
+	DrainQueue(m_PacketList);	// [LOCKFIX] concurrent_queue::clear()는 스레드 안전하지 않음
 #endif
 	return GSSocketUDP::Termination();
 }
@@ -40,7 +40,7 @@ BOOL	GSPacketUDP::Termination(VOID)
 
 BOOL	GSPacketUDP::ReadFromPacketForIocp(LPSTR& remoteAddress, USHORT &remotePort, DWORD readLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!GSSocketUDP::ReadFromForIocp(remoteAddress, remotePort, m_PacketBuffer + m_RemainLength, readLength))
 		return FALSE;
@@ -54,7 +54,7 @@ BOOL	GSPacketUDP::ReadFromPacketForIocp(LPSTR& remoteAddress, USHORT &remotePort
 
 BOOL	GSPacketUDP::ReadFromPacketForEventSelect(LPSTR remoteAddress, USHORT &remotePort)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	DWORD ReadLength = 0;
 
@@ -97,7 +97,7 @@ VOID	GSPacketUDP::MakePacket(DWORD ReadLength)
 
 BOOL	GSPacketUDP::WriteToPacket(LPCSTR remoteAddress, USHORT remotePort, WORD MainProtocol, WORD SubProtocol,const BYTE *packet, WORD packetLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!packet)
 		return FALSE;
@@ -163,7 +163,7 @@ BOOL	GSPacketUDP::WriteToPacket(LPCSTR remoteAddress, USHORT remotePort, WORD Ma
 
 BOOL GSPacketUDP::WriteComplete(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 #ifndef CLIENT_MODULE
 	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData;
 	m_WrietQueue.try_pop(pWriteData);
@@ -175,7 +175,7 @@ BOOL GSPacketUDP::WriteComplete(VOID)
 
 BOOL	GSPacketUDP::ResetUdp(VOID)
 {
-	CThreadSync	Sync;
+	CThreadSync	Sync(this);
 
 	m_LastReadPacketInfoVectorForUdp.clear();
 
@@ -185,7 +185,7 @@ BOOL	GSPacketUDP::ResetUdp(VOID)
 
 BOOL	GSPacketUDP::GetPacket(LPSTR remoteAddress, USHORT remotePort,WORD &MainProtocol, WORD &SubProtocol,BYTE *packet, DWORD &dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!packet)
 		return FALSE;

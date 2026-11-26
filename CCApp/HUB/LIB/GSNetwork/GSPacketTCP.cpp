@@ -21,7 +21,7 @@ GSPacketTCP::~GSPacketTCP(void)
 
 BOOL	GSPacketTCP::Initialize(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	GSPacket::Initialize();
 
@@ -31,27 +31,29 @@ BOOL	GSPacketTCP::Initialize(VOID)
 BOOL	GSPacketTCP::Termination(VOID)
 {
 		
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	GSPacket::Termination();
 #ifndef CLIENT_MODULE
-	m_PacketList.clear();
+	DrainQueue(m_PacketList);	// [LOCKFIX] concurrent_queue::clear()는 스레드 안전하지 않음
 #endif
 
 	return GSSocketTCP::Termination();
 
 }
 
+// [LOCKFIX] 수신 경로(MakePacket/ReadPacket/GetPacket)는 락을 잡지 않는다.
+// IOCP에서 소켓마다 미완료 WSARecv는 항상 1개뿐이라(완료 처리 후 다시 InitializeReadForIocp)
+// m_PacketBuffer / m_RemainLength는 한 시점에 한 스레드만 접근한다.
+// 덕분에 gzip 해제 중에도 같은 소켓의 송신이 막히지 않는다.
 BOOL	GSPacketTCP::ReadPacket(DWORD ReadSize)
 {
-	CThreadSync Sync;
-
 	if (m_Max_Packet_Buffer_Size <= (ReadSize +m_RemainLength))
 	{
 		DWORD Resize = ReadSize + m_RemainLength + m_Max_Packet_Buffer_Size;
 		BYTE* NewBuff = new BYTE[Resize];
 		memcpy(NewBuff, m_PacketBuffer, m_Max_Packet_Buffer_Size);
-		delete m_PacketBuffer;
+		delete[] m_PacketBuffer;		// [LOCKFIX] new[] 와 짝 맞춤
 
 		m_PacketBuffer = NewBuff;
 
@@ -74,7 +76,7 @@ BOOL	GSPacketTCP::ReadPacket(DWORD ReadSize)
 
 BOOL	GSPacketTCP::ReadPacketForEventSelect()
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	DWORD ReadLength = 0;
 
@@ -131,239 +133,129 @@ BOOL	GSPacketTCP::ReadPacketForEventSelect()
 //2022 06 24 extend protocol header
 // size 4 + main protocol id 2 + sub protocol id 2 + sequence 4 + reserve1 1 + reserver2 8
 //
+// [LOCKFIX] 2026-11-26
+//  이전: 헤더 조립(new + memcpy 7회)과 gzip 압축을 소켓 락 안에서 수행 (게다가 그 락이 전역이었음)
+//  변경: 버퍼 조립/압축은 락 없이 하고, 락은 "송신 큐 push + WSASend" 순서를 맞추는 구간에만 잡는다.
+//        WriteComplete()가 큐를 FIFO로 pop하므로 push 순서와 WSASend 순서가 같아야 한다.
 
-BOOL	GSPacketTCP::WritePacketNoneCompress(WORD MainProtocol, WORD SubProtocol, const BYTE* Packet, DWORD PayloadSize, long long Reserve2)
+static const DWORD TCP_PACKET_HEADER_SIZE =
+	sizeof(DWORD) +			// size 4
+	sizeof(WORD) +			// main protocol id 2
+	sizeof(WORD) +			// sub protocol id 2
+	sizeof(DWORD) +			// sequence 4
+	sizeof(BYTE) +			// reserve1 1 (compress flag)
+	sizeof(long long);		// reserve2 8
+
+static const DWORD TCP_PACKET_SEQUENCE_OFFSET = sizeof(DWORD) + sizeof(WORD) + sizeof(WORD);
+
+// 락 없이 호출: 지역 데이터만 사용
+static BYTE* BuildTcpPacket(WORD MainProtocol, WORD SubProtocol, BYTE CompressFlag, const BYTE* Payload, DWORD PayloadSize, long long Reserve2, DWORD& OutLength)
 {
-	CThreadSync Sync;
+	DWORD PacketLength = TCP_PACKET_HEADER_SIZE + PayloadSize;
+	DWORD Sequence = 0;
 
-	if (!Packet)
-		return FALSE;
+	BYTE* sendBuff = new BYTE[PacketLength];
+	BYTE* p = sendBuff;
 
-	DWORD PacketLength = 
-		sizeof(DWORD) +			// size 4
-		sizeof(WORD) +			// main protocol id 2
-		sizeof(WORD) +			// sub protocol id 2
-		sizeof(DWORD) +			// sequence 4
-		sizeof(byte) +			// reserve1 1
-		sizeof(long long) +		//reserver2 8
-		PayloadSize;
+	memcpy(p, &PacketLength, sizeof(DWORD));	p += sizeof(DWORD);
+	memcpy(p, &MainProtocol, sizeof(WORD));		p += sizeof(WORD);
+	memcpy(p, &SubProtocol, sizeof(WORD));		p += sizeof(WORD);
+	memcpy(p, &Sequence, sizeof(DWORD));		p += sizeof(DWORD);		// 실제 값은 SendBuiltPacket에서 락 안에서 기록
+	memcpy(p, &CompressFlag, sizeof(BYTE));		p += sizeof(BYTE);
+	memcpy(p, &Reserve2, sizeof(long long));	p += sizeof(long long);
 
-	byte* sendBuff = new byte[PacketLength];
-
-	byte compressflag = 0;
-
-	memcpy(sendBuff, &PacketLength, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD),
-		&MainProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD),
-		&SubProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD),
-		&m_SequenceNum, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) + 
-		sizeof(DWORD),
-		&compressflag, sizeof(byte));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) + 
-		sizeof(byte),
-		&Reserve2, sizeof(long long));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) + 
-		sizeof(byte) + 
-		sizeof(long long),
-		Packet, PayloadSize);
+	if (PayloadSize > 0)
+		memcpy(p, Payload, PayloadSize);
 
 	//GSCrypt::Encrypt(TempBuffer + sizeof(WORD), TempBuffer + sizeof(WORD), PacketLength - sizeof(WORD));
 
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData(new WRITE_PACKET_INFO);
+	OutLength = PacketLength;
+	return sendBuff;
+}
 
-	pWriteData->Data = sendBuff;
+BOOL	GSPacketTCP::SendBuiltPacket(BYTE* SendBuff, DWORD PacketLength)
+{
+	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData;
+	try
+	{
+		pWriteData.reset(new WRITE_PACKET_INFO);
+	}
+	catch (...)
+	{
+		delete[] SendBuff;
+		throw;
+	}
+
+	pWriteData->Data = SendBuff;			// 소유권 이전 (WRITE_PACKET_INFO 소멸자에서 delete[])
 	pWriteData->DataLength = PacketLength;
+
+	CThreadSync Sync(this);
+
+	memcpy(SendBuff + TCP_PACKET_SEQUENCE_OFFSET, &m_SequenceNum, sizeof(DWORD));
+
 #ifndef CLIENT_MODULE	
 	m_WrietQueue.push(pWriteData);
 #endif	
 
-	//return GSSocketTCP::Write((BYTE*)pWriteData->Data, pWriteData->DataLength);
 	return GSSocketTCP::Write(pWriteData);
+}
+
+BOOL	GSPacketTCP::WriteRaw(const BYTE* Data, DWORD Length)
+{
+	if (!Data || Length == 0)
+		return FALSE;
+
+	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData(new WRITE_PACKET_INFO);
+	pWriteData->Data = new BYTE[Length];
+	pWriteData->DataLength = Length;
+	memcpy(pWriteData->Data, Data, Length);
+
+	CThreadSync Sync(this);
+
+#ifndef CLIENT_MODULE	
+	m_WrietQueue.push(pWriteData);
+#endif	
+
+	return GSSocketTCP::Write(pWriteData);
+}
+
+BOOL	GSPacketTCP::WritePacketNoneCompress(WORD MainProtocol, WORD SubProtocol, const BYTE* Packet, DWORD PayloadSize, long long Reserve2)
+{
+	if (!Packet)
+		return FALSE;
+
+	DWORD PacketLength = 0;
+	BYTE* sendBuff = BuildTcpPacket(MainProtocol, SubProtocol, 0, Packet, PayloadSize, Reserve2, PacketLength);
+
+	return SendBuiltPacket(sendBuff, PacketLength);
 }
 
 BOOL	GSPacketTCP::RelayPacket(WORD MainProtocol, WORD SubProtocol, BOOL Compress, const BYTE* Packet, DWORD PayloadSize, long long Reserve2)
 {
-
-	CThreadSync Sync;
-
 	if (!Packet)
 		return FALSE;
 
-	DWORD PacketLength =
-		sizeof(DWORD) +			// size 4
-		sizeof(WORD) +			// main protocol id 2
-		sizeof(WORD) +			// sub protocol id 2
-		sizeof(DWORD) +			// sequence 4
-		sizeof(byte) +			// reserve1 1
-		sizeof(long long) +		//reserver2 8
-		PayloadSize;
+	DWORD PacketLength = 0;
+	BYTE* sendBuff = BuildTcpPacket(MainProtocol, SubProtocol, (BYTE)Compress, Packet, PayloadSize, Reserve2, PacketLength);
 
-	byte* sendBuff = new byte[PacketLength];
-
-	byte compressflag = Compress;
-
-	memcpy(sendBuff, &PacketLength, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD),
-		&MainProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD),
-		&SubProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD),
-		&m_SequenceNum, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD),
-		&compressflag, sizeof(byte));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) +
-		sizeof(byte),
-		&Reserve2, sizeof(long long));
-
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) +
-		sizeof(byte) +
-		sizeof(long long),
-		Packet, PayloadSize);
-
-	//GSCrypt::Encrypt(TempBuffer + sizeof(WORD), TempBuffer + sizeof(WORD), PacketLength - sizeof(WORD));
-
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData(new WRITE_PACKET_INFO);
-
-	pWriteData->Data = sendBuff;
-	pWriteData->DataLength = PacketLength;
-#ifndef CLIENT_MODULE	
-	m_WrietQueue.push(pWriteData);
-#endif	
-
-	//return GSSocketTCP::Write((BYTE*)pWriteData->Data, pWriteData->DataLength);
-	return GSSocketTCP::Write(pWriteData);
+	return SendBuiltPacket(sendBuff, PacketLength);
 }
 
 
 BOOL	GSPacketTCP::WritePacketCompress(WORD MainProtocol, WORD SubProtocol, const BYTE* Packet, DWORD PayloadSize, long long Reserve2)
 {
-	CThreadSync Sync;
-
 	if (!Packet)
 		return FALSE;
 
-	//compress
-
+	//compress (락 밖)
 	std::string src((char*)Packet, PayloadSize);
 
 	std::string out = Gzip::compress(src);
-	
-	DWORD PacketLength =
-		sizeof(DWORD) +			// size 4
-		sizeof(WORD) +			// main protocol id 2
-		sizeof(WORD) +			// sub protocol id 2
-		sizeof(DWORD) +			// sequence 4
-		sizeof(byte) +			// reserve1 1
-		sizeof(long long) +		//reserver2 8
-		out.size();
 
-	byte* sendBuff = new byte[PacketLength];
+	DWORD PacketLength = 0;
+	BYTE* sendBuff = BuildTcpPacket(MainProtocol, SubProtocol, 1, (const BYTE*)out.c_str(), (DWORD)out.size(), Reserve2, PacketLength);
 
-	byte compressflag = 1;
-
-	memcpy(sendBuff, &PacketLength, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD),
-		&MainProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD),
-		&SubProtocol, sizeof(WORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD),
-		&m_SequenceNum, sizeof(DWORD));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD),
-		&compressflag, sizeof(byte));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) +
-		sizeof(byte),
-		&Reserve2, sizeof(long long));
-
-	memcpy(sendBuff +
-		sizeof(DWORD) +
-		sizeof(WORD) +
-		sizeof(WORD) +
-		sizeof(DWORD) +
-		sizeof(byte) +
-		sizeof(long long),
-		out.c_str(), out.size());
-
-	//GSCrypt::Encrypt(TempBuffer + sizeof(WORD), TempBuffer + sizeof(WORD), PacketLength - sizeof(WORD));
-
-
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData(new WRITE_PACKET_INFO);
-
-	pWriteData->Data = sendBuff;
-	pWriteData->DataLength = PacketLength;
-#ifndef CLIENT_MODULE	
-	m_WrietQueue.push(pWriteData);
-#endif	
-
-	return GSSocketTCP::Write(pWriteData);
+	return SendBuiltPacket(sendBuff, PacketLength);
 }
 
 BOOL	GSPacketTCP::WritePacket(WORD MainProtocol,WORD SubProtocol, const BYTE * Packet, DWORD PayloadSize, long long Reserve2)
@@ -396,8 +288,6 @@ BOOL GSPacketTCP::WriteComplete(VOID)
 
 VOID GSPacketTCP::MakePacket(DWORD &dwPacketLength )
 {
-	CThreadSync Sync;
-
 	if (ReadPacket(dwPacketLength))
 	{
 		while (GetPacket())
@@ -413,8 +303,6 @@ VOID GSPacketTCP::MakeMsg(WORD Mainprotocol, WORD Subprotocol,DWORD dataLength)
 
 BOOL GSPacketTCP::GetPacket()
 {
-	CThreadSync Sync;
-
 	if (m_RemainLength <= sizeof(DWORD))
 		return FALSE;
 
@@ -496,7 +384,8 @@ BOOL GSPacketTCP::GetPacket()
 		if (m_RemainLength <= 0)
 		{
 			m_RemainLength = 0;
-			memset(m_PacketBuffer, 0, sizeof(m_PacketBuffer));
+			// [LOCKFIX] memset(m_PacketBuffer, 0, sizeof(m_PacketBuffer)) 제거: 포인터 크기(8바이트)만 지우던 코드이고
+			// 유효 데이터 범위는 m_RemainLength로 관리하므로 지울 필요가 없다.
 		}
 
 	//	MakeMsg(MainProtocol, SubProtocol, PayLoadLength);

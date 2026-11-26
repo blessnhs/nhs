@@ -14,7 +14,7 @@ GSPacketBuffer::GSPacketBuffer(DWORD dwBufferSize)
 
 GSPacketBuffer::~GSPacketBuffer()
 {
-	if(m_pBuffer != NULL) delete m_pBuffer;
+	if(m_pBuffer != NULL) delete[] m_pBuffer;		// [LOCKFIX] new[] ¿Í Â¦ ¸ÂÃã
 }
 
 bool GSPacketBuffer::PutData(char* pData, DWORD length)
@@ -81,7 +81,7 @@ void GSPacketBuffer::ReSize()
 			memcpy(pNewData+prevBufSize, m_pBuffer, m_dwTailPos );
 			m_dwTailPos += prevBufSize;
 		}
-		delete m_pBuffer;
+		delete[] m_pBuffer;		// [LOCKFIX] new[] ¿Í Â¦ ¸ÂÃã
 		m_pBuffer = pNewData;
 }
 

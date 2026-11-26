@@ -25,16 +25,18 @@ GSClientMgr::~GSClientMgr(void)
 VOID GSClientMgr::AllCloseSocket()
 {
 	GSServer::GSServer* pServer = (GSServer::GSServer*)m_GSServer;
-	for each (auto & client in m_Clients)
+	for (auto& kv : m_Clients)
 	{
-		if (client.second == NULL)
+		// [LOCKFIX] 값(shared_ptr)은 다른 스레드가 DelClient()에서 동시에 바꿀 수 있으므로 atomic_load로 복사해서 사용
+		GSCLIENT_PTR client = boost::atomic_load(&kv.second);
+		if (client == NULL)
 		{
 			continue;
 		}
 
-		if (client.second->GetConnected())
+		if (client->GetConnected())
 		{
-				pServer->Close(client.second->GetTCPSocket()->GetSocket());
+				pServer->Close(client->GetTCPSocket()->GetSocket());
 		}
 	}
 }
@@ -47,39 +49,45 @@ VOID GSClientMgr::CheckAliveTime()
 	int debug_null_cnt = 0;
 	int connection_cnt = 0;
 
-	for each (auto& client in m_Clients)
+	for (auto& kv : m_Clients)
 	{
-		if (client.second == NULL)
+		// [LOCKFIX] atomic_load로 복사 (DelClient와의 shared_ptr 경쟁 방지)
+		GSCLIENT_PTR client = boost::atomic_load(&kv.second);
+		if (client == NULL)
 		{
 			debug_null_cnt++;
 			continue;
 		}
 
-		if (client.second->GetConnected())
+		if (client->GetConnected())
 		{
-			DWORD client_time = client.second->GetAliveTime();
+			DWORD client_time = client->GetAliveTime();
 			DWORD server_check_time = pServer->GetArgument().m_AliveTime;
 			DWORD system_tick = GetTickCount();
 			int Diff = system_tick - (client_time + server_check_time);
 
 			if (server_check_time != 0 && client_time != 0 && (client_time + server_check_time) <= system_tick)
 			{
-				if (client.second->GetClientType() != ClientType::SERVER_CLIENT)
+				if (client->GetClientType() != ClientType::SERVER_CLIENT)
 				{
-					client.second->m_TryCloseCount++;
+					client->m_TryCloseCount++;
 
 					
-					if(client.second->m_TryCloseCount > 1)
+					if(client->m_TryCloseCount > 1)
 					{
 						//이 코드는 사실상 들오면 안된다.
-						//client.second->OnDisconnect(client.second, true);
+						//client->OnDisconnect(client.second, true);
 					}
-					else if(client.second->m_TryCloseCount == 1)
+					else if(client->m_TryCloseCount == 1)
 					{
 						//여기서 서버에서 그냥 close하면 무한 무프 ondisconnect-> close 반복이라 이런식으로 iocp에서 감지하겠끔 해준다.
-						byte data[2];
-						client.second->GetTCPSocket()->Write(data, 1);
-//						pServer->Close(client.second->GetTCPSocket()->GetSocket());
+						// [LOCKFIX] 이전: 지역(스택) 배열 byte data[2]를 비동기 WSASend로 보냄
+						//  -> 함수가 끝나면 버퍼가 사라지는데 커널은 아직 그 주소를 읽을 수 있음.
+						//  -> 송신 큐에도 넣지 않아서 완료 시 WriteComplete()가 다른 송신 버퍼를 pop해서 해제함.
+						// 변경: 힙에 복사하고 송신 큐에 등록하는 WriteRaw() 사용 (동작은 동일하게 1바이트 송신)
+						byte data[1] = { 0 };
+						client->GetTCPSocket()->WriteRaw(data, 1);
+//						pServer->Close(client->GetTCPSocket()->GetSocket());
 					}
 				}
 			}
@@ -158,15 +166,15 @@ int GSClientMgr::GetActiveSocketCount()
 {
 	int count = 0;
 
-	for each (auto& client in m_Clients)
+	for (auto& kv : m_Clients)
 	{
-		if (client.second == NULL)
+		GSCLIENT_PTR client = boost::atomic_load(&kv.second);	// [LOCKFIX]
+		if (client == NULL)
 		{
-			//	remove_queue.push(client.first);
 			continue;
 		}
 
-		if (client.second->GetConnected() == FALSE)
+		if (client->GetConnected() == FALSE)
 			continue;
 		
 		count++;
@@ -187,26 +195,27 @@ int GSClientMgr::IncClientId()
 
 GSCLIENT_PTR GSClientMgr::GetClient(int id)
 {
-	auto& find = m_Clients.find(id);
+	auto find = m_Clients.find(id);
 	if (find == m_Clients.end())
 		return NULL;
 
-	return m_Clients[id];
+	// [LOCKFIX] 이전: find 후 operator[]로 한 번 더 조회 + 값 복사가 DelClient의 대입과 경쟁
+	return boost::atomic_load(&find->second);
 
 }
 
 BOOL GSClientMgr::AddClient(GSCLIENT_PTR newclient)
 {
-	auto& find = m_Clients.find(newclient->GetId());
+	auto find = m_Clients.find(newclient->GetId());
 	if (find != m_Clients.end())
 	{
-		if (find->second != NULL)
+		if (boost::atomic_load(&find->second) != NULL)
 			printf("alert add client id is exist\n");
 	}
 
-	m_Clients[newclient->GetId()] = newclient;
+	newclient->m_GSServer = this->m_GSServer;	// [LOCKFIX] 다른 스레드에 보이기 전에 먼저 설정
 
-	newclient->m_GSServer = this->m_GSServer;
+	boost::atomic_store(&m_Clients[newclient->GetId()], newclient);	// [LOCKFIX]
 
 
 	return TRUE;
@@ -214,7 +223,7 @@ BOOL GSClientMgr::AddClient(GSCLIENT_PTR newclient)
 
 BOOL GSClientMgr::BookDelClient(int id)
 {
-	auto& client = GetClient(id);
+	GSCLIENT_PTR client = GetClient(id);	// [LOCKFIX] 임시 객체를 비const 참조로 받던 코드 정리
 
 	if (client == NULL)
 		return FALSE;
@@ -229,7 +238,9 @@ BOOL GSClientMgr::BookDelClient(int id)
 
 BOOL GSClientMgr::DelClient(int id)
 {
-	m_Clients[id] = NULL;
+	// [LOCKFIX] 다른 스레드가 같은 값을 읽는 중일 수 있으므로 atomic_store
+	// (concurrent_unordered_map은 삽입/조회만 스레드 안전하고 값 객체의 대입은 보호하지 않는다)
+	boost::atomic_store(&m_Clients[id], GSCLIENT_PTR());
 
 	return TRUE;
 }
@@ -269,7 +280,7 @@ BOOL GSClientMgr::NewClient(int NewClient)
 		return FALSE;
 	}
 
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 			
 	NewConnectount.fetch_add(NewClient);
 
@@ -324,7 +335,7 @@ GSCLIENT_PTR GSClientMgr::NewClient2()
 		return FALSE;
 	}
 
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 	for (int i = 0; i < 1; i++)
 	{
 		GSCLIENT_PTR pClient = ALLOCATOR.Create<GSClient>();

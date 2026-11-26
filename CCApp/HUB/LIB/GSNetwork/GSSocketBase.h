@@ -34,7 +34,7 @@ public:
 	virtual ~WRITE_PACKET_INFO() 
 	{
 		if (Data != NULL)
-			delete Data;
+			delete[] Data;		// [LOCKFIX] Data´Â new byte[] ·Î ÇÒ´çµÊ
 
 		Data = NULL;
 	}

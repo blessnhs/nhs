@@ -45,7 +45,7 @@ BOOL GSSocketTCP::GetPeerInfo(LPSTR szAddr, unsigned short &usPort)
 
 BOOL GSSocketTCP::CreateTcpSocket(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (m_Socket)
 		return FALSE;
@@ -62,7 +62,7 @@ BOOL GSSocketTCP::CreateTcpSocket(VOID)
 
 BOOL GSSocketTCP::InitializeReadForIocp(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -109,7 +109,7 @@ BOOL			GSSocketTCP::ReadForIocp(BYTE* PacketBuffer, DWORD DataLength,DWORD Remai
 	//m_PacketBuffer 누적 버퍼
 
 
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -127,7 +127,7 @@ BOOL			GSSocketTCP::ReadForIocp(BYTE* PacketBuffer, DWORD DataLength,DWORD Remai
 
 BOOL			GSSocketTCP::ReadForEventSelect(BYTE *Data, DWORD &DataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -174,15 +174,14 @@ BOOL			GSSocketTCP::ReadForEventSelect(BYTE *Data, DWORD &DataLength)
 
 }
 
+// [LOCKFIX] BOOL 하나를 읽고 쓰는 데 락은 과함 -> Interlocked
 VOID GSSocketTCP::SetConnected(BOOL bConnected) 
 {
-	CThreadSync Sync; 
-	m_bConnected = bConnected; 
+	InterlockedExchange(reinterpret_cast<volatile LONG*>(&m_bConnected), (LONG)bConnected);
 }
 BOOL GSSocketTCP::GetConnected(VOID) 
 { 
-	CThreadSync Sync; 
-	return m_bConnected; 
+	return (BOOL)InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(&m_bConnected), 0, 0);
 }
 
 BOOL GSSocketTCP::Write(boost::shared_ptr<WRITE_PACKET_INFO> Packet)
@@ -192,7 +191,7 @@ BOOL GSSocketTCP::Write(boost::shared_ptr<WRITE_PACKET_INFO> Packet)
 
 BOOL GSSocketTCP::Write(BYTE * Data, DWORD DataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;

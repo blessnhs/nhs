@@ -18,21 +18,27 @@ VOID GSTimerQ::SendMessage(LPVOID Arg)
 {
 	GSTimerQ *pTimer = (GSTimerQ *)Arg;
 
-	CThreadSync Sync;
+	CThreadSync Sync(pTimer);	// [LOCKFIX] static 함수라 this 대신 pTimer
 
-	std::map<DWORD,GSTimerJob*>::iterator iter = pTimer->m_TimeJobList.begin();
+	iterator iter = pTimer->m_TimeJobList.begin();
 	GSTimerJob *pJob = NULL;
+	DWORD Now = GetTickCount();		// [LOCKFIX] 루프마다 호출하지 않고 한 번만
 	while(iter != pTimer->m_TimeJobList.end())
 	{
 		pJob = (GSTimerJob *)iter->second;
-		if(pJob == NULL) break;
+		if(pJob == NULL)
+		{
+			// [LOCKFIX] 이전: break -> 뒤에 있는 만료 작업들이 다음 틱으로 밀림
+			iter = pTimer->m_TimeJobList.erase(iter);
+			continue;
+		}
 		
-		if(GetTickCount() >= pJob->GetExpineTime())
+		if(Now >= pJob->GetExpineTime())
 		{
 			if(pJob->Func == NULL)
 			{
 				iter = pTimer->m_TimeJobList.erase(iter);
-				break;
+				continue;	// [LOCKFIX] 이전: break
 			}
 			ULONG nFlags = WT_EXECUTEDEFAULT;
 			WT_SET_MAX_THREADPOOL_THREADS(nFlags, pTimer->MaxThread);
@@ -57,20 +63,10 @@ bool GSTimerQ::AddTimerJob(GSTimerJob *pJob)
 {
 	if(pJob == NULL) return false;
 
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
-	int i;
-	for(i=0;i<10000;i++)	
-	{
-		if(m_TimeJobList.end() == m_TimeJobList.find(pJob->GetExpineTime()+i))
-		{
-			m_TimeJobList[pJob->GetExpineTime()+i] = pJob;
-			break;
-		}
-	}
-
-	if(i >=  10000)
-		SYSLOG().Write("erase evt = %d\n",i);
+	// [LOCKFIX] 이전: 같은 키를 피하려고 락 안에서 find()를 최대 1만 번 반복
+	m_TimeJobList.insert(std::make_pair(pJob->GetExpineTime(), pJob));
 
 	return true;
 }
@@ -80,7 +76,7 @@ bool GSTimerQ::DelTimerJob(GSTimerJob *pJob)
 	if (pJob == NULL)
 		return false;
 
-	CThreadSync sync;
+	CThreadSync sync(this);
 
 	iterator iter = m_TimeJobList.begin();
 

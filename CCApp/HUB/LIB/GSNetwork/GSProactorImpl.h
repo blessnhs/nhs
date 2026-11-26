@@ -24,6 +24,11 @@ public:
 	virtual bool Handle_Event(int ProcId);
 
 protected:
+	// [LOCKFIX] 타입별 작업 큐와 세마포어를 한 번만 생성해서 돌려준다 (생성 경쟁 방지)
+	Concurrency::concurrent_queue<IMessagePtr>* GetJobQueue(int Type, HANDLE* Semaphore);
+	SRWLOCK				m_MapLock;
+
+protected:
 	int				   m_InputThreadCnt;
 	
 

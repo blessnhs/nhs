@@ -13,7 +13,7 @@ typedef GSFrames::GSTimerJob::GSTimerJob	GSTimerJob;
 class GSTimerQ : public GSGuard<GSTimerQ>
 {
 public:
-	typedef std::map<DWORD,GSTimerJob*>::iterator iterator;
+	typedef std::multimap<DWORD,GSTimerJob*>::iterator iterator;
 
 public:
 	GSTimerQ(void);
@@ -38,10 +38,11 @@ protected:
 
 public:
 	int    MaxThread;
-	CRITICAL_SECTION cs;
+	// [LOCKFIX] 사용하지 않던 CRITICAL_SECTION cs 제거
 protected:
 //	tbb::concurrent_queue<GSTimerJob*> m_TimeJobList;
-	std::map<DWORD,GSTimerJob*> m_TimeJobList;
+	// [LOCKFIX] map -> multimap: 같은 만료 시각의 작업을 키 충돌 회피 루프 없이 그대로 넣을 수 있다
+	std::multimap<DWORD,GSTimerJob*> m_TimeJobList;
 
 	
 };

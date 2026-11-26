@@ -149,8 +149,8 @@ VOID GSServer::OnWrote(int client_id, DWORD dataLength)
 VOID GSServer::OnConnected(int client_id)
 {
 //이락은 필수 안그럼 종료되었는데 남아 있고 꼬인다.
-	CThreadSync Sync;
-
+	// [LOCKFIX] 이전: CThreadSync Sync(this) -> 서버 전체(모든 접속/종료 처리)를 직렬화하는 전역 락.
+	// 꼬임을 막아야 하는 대상은 "같은 클라이언트의 접속 처리와 종료 처리"이므로 해당 클라이언트 객체만 잠근다.
 	boost::shared_ptr<GSClient> pClient = GetClient(client_id);
 	if (pClient == NULL)
 	{
@@ -158,13 +158,16 @@ VOID GSServer::OnConnected(int client_id)
 		return;
 	}
 
+	GSClient::CThreadSync ClientSync(pClient.get());
+
 	ConnectCount.fetch_add(1);
 
 	pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
 
-	m_EvtClientId = client_id;
+	// [LOCKFIX] completion key는 워커에서 NULL 여부만 확인한다(실제 식별은 OVERLAPPED_EX::ObjectId).
+	// 이전에는 공유 멤버 m_EvtClientId의 주소를 넘겨서 이 멤버를 보호하려고 전역 락이 필요했다.
 
-	if (!GSIocp::RegIocpHandler(pClient->GetSocket(), reinterpret_cast<ULONG_PTR>(&m_EvtClientId)))
+	if (!GSIocp::RegIocpHandler(pClient->GetSocket(), reinterpret_cast<ULONG_PTR>(this)))
 	{
 		SYSLOG().Write("Connected exception ...1\n");
 		//이코드에서 그냥 close하면 gsclient는 서버에 접속도 못하는 미아 객체가 됨
@@ -208,15 +211,15 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 {
 //이락은 필수
 
-	CThreadSync Sync;
-
-
+	// [LOCKFIX] 전역 락 -> 해당 클라이언트 객체 락 (OnConnected와 같은 이유)
 	boost::shared_ptr<GSClient> pClient = GetClient(client_id);
 	if (pClient == NULL)
 	{
 		SYSLOG().Write("!!!alert cant find OnDisconnected2222 client id %d\n", client_id);
 		return;
 	}
+
+	GSClient::CThreadSync ClientSync(pClient.get());
 
 
 	if (pClient->GetCreateType() == TCP)

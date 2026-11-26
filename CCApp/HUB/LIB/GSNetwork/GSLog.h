@@ -15,6 +15,7 @@ private:
 	CRITICAL_SECTION cs;
 	HANDLE			handle_;
 	string			_name;
+	DWORD			_openDate;		// [LOCKFIX] 현재 열린 파일의 날짜 (yyyymmdd). 날짜가 바뀔 때만 다시 연다.
 
 public:
 

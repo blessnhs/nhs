@@ -8,8 +8,8 @@ template<template<class T> class CreationPolicy>
 class RoomContainer  : public CreationPolicy<ROOM>
 {
 public:
-	RoomContainer(void) { InitializeCriticalSection(&m_PublicLock); }
-	~RoomContainer(void) {	DeleteCriticalSection(&m_PublicLock);	}
+	RoomContainer(void) {}
+	~RoomContainer(void) {}
 
 	ROOM_PTR Create();
 	ROOM_PTR Create(int room_id, string name);
@@ -50,7 +50,7 @@ protected:
 	concurrency::concurrent_unordered_map<DWORD,ROOM_PTR>		m_RoomMap;
 	concurrency::concurrent_unordered_map<DWORD, ROOM_PTR>		m_RoomMapForLoop;
 
-	CRITICAL_SECTION											m_PublicLock;
+	// [LOCKFIX] Create()에서만 쓰던(불필요) m_PublicLock 제거
 };
 
 //채널 도입으로 전역 룸 객체는 주석

@@ -73,7 +73,7 @@ BOOL GSSocketUDP::Termination(VOID)
 
 BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (m_Socket)
 		return FALSE;
@@ -148,7 +148,7 @@ BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 
 BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -189,7 +189,7 @@ BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 
 BOOL			GSSocketUDP::ReadFromForEventSelect(LPSTR remoteAddress, USHORT &remotePort, BYTE *data, DWORD &dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -267,7 +267,7 @@ VOID GSSocketUDP::SetUdpWriteCompleteEvent(VOID)
 
 BOOL	GSSocketUDP::ReadFromForIocp(LPSTR& remoteAddress, USHORT &remotePort, BYTE *data, DWORD &dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -304,7 +304,7 @@ BOOL	GSSocketUDP::ReadFromForIocp(LPSTR& remoteAddress, USHORT &remotePort, BYTE
 
 BOOL GSSocketUDP::GetRemoteAddressAfterAccept(LPTSTR remoteAddress, USHORT &remotePort)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!remoteAddress)
 		return FALSE;
@@ -333,7 +333,7 @@ BOOL GSSocketUDP::GetRemoteAddressAfterAccept(LPTSTR remoteAddress, USHORT &remo
 
 BOOL			GSSocketUDP::WriteTo(LPCSTR remoteAddress, USHORT remotePort, BYTE *data, DWORD dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -361,7 +361,7 @@ BOOL			GSSocketUDP::WriteTo(LPCSTR remoteAddress, USHORT remotePort, BYTE *data,
 }
 BOOL			GSSocketUDP::WriteTo2(LPSTR remoteAddress, USHORT remotePort, BYTE *data, DWORD dataLength)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;

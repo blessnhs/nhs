@@ -14,7 +14,7 @@ GSBuffer::GSBuffer(void)
 GSBuffer::~GSBuffer(void)
 {
 	if (mBufferPointer != NULL)
-		delete mBufferPointer;
+		delete[] mBufferPointer;		// [LOCKFIX] new[] ¿Í Â¦ ¸ÂÃã
 }
 
 BYTE* GSBuffer::AllocBuffer(INT Size)

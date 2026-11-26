@@ -28,6 +28,15 @@ struct XDATA
 	WORD RemotePort;
 };
 
+// [LOCKFIX] concurrent_queue::clear()는 다른 스레드의 push/try_pop과 동시에 호출하면 안 된다.
+// try_pop으로 비우면 동시 접근 중에도 안전하다.
+template<class Q>
+inline void DrainQueue(Q& q)
+{
+	typename Q::value_type item;
+	while (q.try_pop(item)) {}
+}
+
 class GSPacket 
 {
 public:

@@ -49,13 +49,14 @@ public:
 	template<class U>
 	VOID														  SetHandler()
 	{
-		for each (auto client in m_ClientMgr.m_Clients)
+		for (auto& kv : m_ClientMgr.m_Clients)
 		{
-			if (client.second == NULL)
+			GSCLIENT_PTR client = boost::atomic_load(&kv.second);	// [LOCKFIX]
+			if (client == NULL)
 				continue;
 
 				boost::shared_ptr<U> Handler(new U);
-				client.second->SetProcess(Handler);
+				client->SetProcess(Handler);
 		}
 	}
 

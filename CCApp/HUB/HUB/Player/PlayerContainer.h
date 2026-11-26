@@ -67,7 +67,7 @@ protected:
 	concurrency::concurrent_unordered_map<INT64, PlayerPtr> m_PlayerMap;
 	concurrency::concurrent_unordered_map<INT64, PlayerPtr> m_PlayerMapForLoop;
 
-	CRITICAL_SECTION										  m_PublicLock;
+	// [LOCKFIX] 사용하지 않던 CRITICAL_SECTION m_PublicLock 제거
 };
 
 

@@ -1,32 +1,59 @@
 
+// [LOCKFIX] 2026-11-26
+//  m_RoomMap / m_RoomMapForLoop(concurrent_unordered_map)의 값(shared_ptr)은
+//  boost::atomic_load / atomic_store / atomic_compare_exchange로만 읽고 쓴다.
+//  (로직 스레드와 DB 스레드가 동시에 접근. 컨테이너는 값 대입을 보호하지 않음)
+
+// 루프용 맵에서 빈(NULL) 슬롯을 원자적으로 차지 (두 스레드가 같은 빈 슬롯을 동시에 가져가지 못함)
+template<class MapT, class PtrT>
+inline bool RoomContainer_PutLoopSlot(MapT& LoopMap, PtrT& pObj)
+{
+	for (auto& kv : LoopMap)
+	{
+		PtrT expected;
+		if (boost::atomic_compare_exchange(&kv.second, &expected, pObj))
+			return true;
+	}
+
+	boost::atomic_store(&LoopMap[pObj->GetId()], pObj);
+	return false;
+}
+
+// 루프용 맵에서 같은 id의 슬롯을 원자적으로 비움
+template<class MapT, class PtrT>
+inline bool RoomContainer_ClearLoopSlot(MapT& LoopMap, PtrT& pObj)
+{
+	for (auto& kv : LoopMap)
+	{
+		PtrT cur = boost::atomic_load(&kv.second);
+		if (cur != NULL && cur->GetId() == pObj->GetId())
+		{
+			if (boost::atomic_compare_exchange(&kv.second, &cur, PtrT()))
+				return true;
+		}
+	}
+	return false;
+}
+
 template<template<class T> class CreationPolicy> bool RoomContainer<CreationPolicy>::Add(ROOM_PTR &pObj, PLAYER_PTR player)
 {
 	auto iter = m_RoomMap.find(pObj->GetId());
 
 	if(iter == m_RoomMap.end())
 	{
-		m_RoomMap[pObj->GetId()] = pObj;
+		// [LOCKFIX] find 후 삽입은 원자적이지 않으므로 빈 값일 때만 CAS로 넣는다
+		ROOM_PTR expected;
+		if (boost::atomic_compare_exchange(&m_RoomMap[pObj->GetId()], &expected, pObj) == false)
+			return false;	// 다른 스레드가 같은 id로 먼저 추가
 
-		//룸 매니저는 통합 매니저 없애고 채널에 귀속
+		//룸 매니저는 이제 매니저 없애고 채널에 귀속
 	/*	if (player != NULL)
 			CHANNELMGR.RoomEnterChannel(player->GetChannel(), pObj);
 		else
 			printf("cant enter channel %d\n", player->GetChannel());*/
 
-		bool find = false;
-		for (auto iter = m_RoomMapForLoop.begin(); iter != m_RoomMapForLoop.end(); iter++)
-		{
-			if (iter->second == NULL)
-			{
-				m_RoomMapForLoop[iter->first] = pObj;
-				return true;
-			}
-		}
-
-		m_RoomMapForLoop[pObj->GetId()] = pObj;
+		return RoomContainer_PutLoopSlot(m_RoomMapForLoop, pObj);
 	}
-
-	
 
 	return false;
 }
@@ -40,31 +67,14 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 		return false;
 	}
 
-	m_RoomMap[pObj->GetId()] = NULL;
+	boost::atomic_store(&iter->second, ROOM_PTR());
 
 	//if (player != NULL)
 	//	CHANNELMGR.RoomLeaveChannel(player);
 	//else
 	//	printf("cant leave channel %d\n", player->GetChannel());
 
-	bool find = false;
-	for (auto iter = m_RoomMapForLoop.begin(); iter != m_RoomMapForLoop.end(); iter++)
-	{
-		if (iter->second != NULL)
-		{
-			if (iter->second->GetId() == pObj->GetId())
-			{
-				m_RoomMapForLoop[iter->first] = NULL;
-
-
-				return true;
-			}
-
-		}
-	}
-
-
-	return false;
+	return RoomContainer_ClearLoopSlot(m_RoomMapForLoop, pObj);
 }
 
 
@@ -74,22 +84,12 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 
 	if (iter == m_RoomMap.end())
 	{
-		m_RoomMap[pObj->GetId()] = pObj;
+		ROOM_PTR expected;
+		if (boost::atomic_compare_exchange(&m_RoomMap[pObj->GetId()], &expected, pObj) == false)
+			return false;
 
-		bool find = false;
-		for (auto iter = m_RoomMapForLoop.begin(); iter != m_RoomMapForLoop.end(); iter++)
-		{
-			if (iter->second == NULL)
-			{
-				m_RoomMapForLoop[iter->first] = pObj;
-				return true;
-			}
-		}
-
-		m_RoomMapForLoop[pObj->GetId()] = pObj;
+		return RoomContainer_PutLoopSlot(m_RoomMapForLoop, pObj);
 	}
-
-
 
 	return false;
 }
@@ -103,47 +103,36 @@ template<template<class T> class CreationPolicy> bool RoomContainer<CreationPoli
 		return false;
 	}
 
-	m_RoomMap[pObj->GetId()] = NULL;
+	boost::atomic_store(&iter->second, ROOM_PTR());
 
-	bool find = false;
-	for (auto iter = m_RoomMapForLoop.begin(); iter != m_RoomMapForLoop.end(); iter++)
-	{
-		if (iter->second != NULL)
-		{
-			if (iter->second->GetId() == pObj->GetId())
-			{
-				m_RoomMapForLoop[iter->first] = NULL;
-
-				return true;
-			}
-
-		}
-	}
-
-	return false;
+	return RoomContainer_ClearLoopSlot(m_RoomMapForLoop, pObj);
 }
 
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Search(INT64 Id)
 {
-	auto iter = m_RoomMap.find(Id);
+	auto iter = m_RoomMap.find((DWORD)Id);
 
 	if(iter == m_RoomMap.end())
 	{
 		return ROOM_PTR();
 	}
-	return (iter->second);
+	return boost::atomic_load(&iter->second);
 }
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::SearchByGameType(WORD Type)
 {
-	for each (auto room in m_RoomMap)
+	for (auto& kv : m_RoomMap)
 	{
-		if (room->second->m_Stock.GameType == Type)
+		ROOM_PTR room = boost::atomic_load(&kv.second);
+		if (room == NULL)
+			continue;
+
+		if (room->m_Stock.GameType == Type)
 		{
-			if (room->second->GetCurrPlayer() < room->second->m_Stock.MAX_PLAYER)
+			if (room->GetCurrPlayer() < room->m_Stock.MAX_PLAYER)
 			{
-				return (room->second);
+				return room;
 			}
 		}
 	}
@@ -154,31 +143,24 @@ template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<Creation
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Create()
 {
-	EnterCriticalSection(&m_PublicLock);
-
+	// [LOCKFIX] 이전: m_PublicLock으로 감쌌지만 팩토리(GSCreator)는 자체 락이 있고 id는 atomic이라 락이 필요 없었다.
+	//           SetId(intAtomic) 후 fetch_add(1) 두 단계를 fetch_add 한 번으로 합침 (반환값은 증가 전 값 = 이전과 같은 id)
 	static atomic<int> intAtomic = 1;
 
 	ROOM_PTR PTR =  CreationPolicy<ROOM>().Create();
 
-	PTR->SetId(intAtomic);
-
-	intAtomic.fetch_add(1);
-
-	LeaveCriticalSection(&m_PublicLock);
+	PTR->SetId(intAtomic.fetch_add(1));
 
 	return PTR;
 }
 
 template<template<class T> class CreationPolicy> ROOM_PTR RoomContainer<CreationPolicy>::Create(int room_id,string name)
 {
-	EnterCriticalSection(&m_PublicLock);
-
+	// [LOCKFIX] 락 불필요 (지역 객체만 다룸)
 	ROOM_PTR PTR = CreationPolicy<ROOM>().Create();
 
 	PTR->SetId(room_id);
 	PTR->m_Stock.Name = name;
-
-	LeaveCriticalSection(&m_PublicLock);
 
 	return PTR;
 }
@@ -188,17 +170,18 @@ template<template<class T> class CreationPolicy> VOID RoomContainer<CreationPoli
 	const int max_count = 10;
 	int currcount = 0;
 
-	for each (auto room in m_RoomMapForLoop)
+	for (auto& kv : m_RoomMapForLoop)
 	{
-		if (room.second != NULL)
+		ROOM_PTR room = boost::atomic_load(&kv.second);
+		if (room != NULL)
 		{
 			if (currcount > max_count)
 				break;
 
 			RoomInfo2* info = List->Add();
-			info->mutable_var_name()->assign(room.second->m_Stock.Name);
-			info->set_var_id(room.second->GetId());
-			info->set_var_current_count(room.second->GetCurrPlayer());
+			info->mutable_var_name()->assign(room->m_Stock.Name);
+			info->set_var_id(room->GetId());
+			info->set_var_current_count(room->GetCurrPlayer());
 			info->set_var_max_count(-1);
 
 			currcount++;
@@ -208,18 +191,22 @@ template<template<class T> class CreationPolicy> VOID RoomContainer<CreationPoli
 
 template<template<class T> class CreationPolicy> void RoomContainer<CreationPolicy>::Print()
 {
-	for each (auto room in m_RoomMapForLoop)
+	for (auto& kv : m_RoomMapForLoop)
 	{
-		printf("id :%d  name : %s count : %d\n", room.second->GetId(), room.second->m_Stock.Name.c_str(), room.second->m_PlayerMap.size());
+		ROOM_PTR room = boost::atomic_load(&kv.second);
+		if (room == NULL)		// [LOCKFIX] 삭제된 방(NULL) 역참조 방지
+			continue;
+
+		printf("id :%d  name : %s count : %d\n", room->GetId(), room->m_Stock.Name.c_str(), room->GetCurrPlayer());
 	}
 }
 
 template<template<class T> class CreationPolicy> int RoomContainer<CreationPolicy>::Count()
 {
 	int count = 0;
-	for each (auto room in m_RoomMapForLoop)
+	for (auto& kv : m_RoomMapForLoop)
 	{
-		if (room.second != NULL)
+		if (boost::atomic_load(&kv.second) != NULL)
 			count++;
 	}
 
@@ -255,4 +242,3 @@ template<template<class T> class CreationPolicy> void RoomContainer<CreationPoli
 
 	}
 }
-

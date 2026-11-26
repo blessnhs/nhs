@@ -117,7 +117,7 @@ SOCKET GSClient::GetSocket(VOID)
 
 bool GSClient::GetCompleteJob(const std::wstring str)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	std::map<std::wstring,bool>::iterator iter = m_CheckCompleteMap.find(str);
 	if(iter == m_CheckCompleteMap.end())
@@ -130,7 +130,7 @@ bool GSClient::GetCompleteJob(const std::wstring str)
 
 void GSClient::SetCompleteJob(const std::wstring str,bool Value)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	m_CheckCompleteMap[str] = Value;
 }
@@ -175,17 +175,18 @@ BOOL GSClient::GetConnected(VOID)
 
 boost::shared_ptr<IProcess<int>> GSClient::GetProcess()
 {
-	return m_Process;
+	// [LOCKFIX] SetProcess(접속 처리 스레드)와 GetProcess(로직 스레드)가 동시에 일어날 수 있음
+	return boost::atomic_load(&m_Process);
 }
 
 void GSClient::SetProcess(boost::shared_ptr<IProcess<int>> Process)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
-	m_Process = Process;
+	if(Process != NULL)
+		Process->pOwnerId = GetId();	// [LOCKFIX] 공개(store)하기 전에 초기화
 
-	if(m_Process != NULL)
-		m_Process->pOwnerId = GetId();
+	boost::atomic_store(&m_Process, Process);
 }
 
 VOID GSClient::OnResponse(LPVOID Data)
@@ -384,7 +385,7 @@ void GSClient::OnSend(WORD MainId,WORD SubId,char *Data,WORD Length)
 
 void GSClient::OnRecv(DWORD Length, boost::shared_ptr<GSClient> client)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (client->GetCreateType() == TCP)
 	{
@@ -405,7 +406,7 @@ void GSClient::OnRecv(DWORD Length, boost::shared_ptr<GSClient> client)
 
 void GSClient::OnDisconnect(boost::shared_ptr<GSClient> client, bool isForce)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 /*	if (m_TCPSocket->m_Accept_OLP->Overlapped.Internal != 0)
 	{
@@ -446,7 +447,7 @@ void GSClient::OnDisconnect(boost::shared_ptr<GSClient> client, bool isForce)
 void GSClient::OnConnect(boost::shared_ptr<GSClient> pClient)
 {
 	//Accept가 떨어졌다.
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	//SYSLOG().Write("Accept Success Socket %d %d %d\n",GetSocket(),GetId(),GetMyTP());
 
@@ -485,7 +486,7 @@ void GSClient::OnConnect(boost::shared_ptr<GSClient> pClient)
 
 VOID GSClient::Clear()
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	m_AliveTime = 0;
 

@@ -44,7 +44,7 @@ public:
 
 	bool				m_IsOpen;
 
-	CRITICAL_SECTION	m_CS;
+	// [LOCKFIX] 사용하지 않던 CRITICAL_SECTION m_CS 제거
 
 	MongoDB				*m_DB;
 

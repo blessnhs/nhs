@@ -88,9 +88,12 @@ BOOL GSIocp::RegIocpHandler(SOCKET socket, ULONG_PTR completionKey)
 	if (!socket || !completionKey)
 		return FALSE;
 
-	m_Handle = CreateIoCompletionPort((HANDLE) socket, m_Handle, completionKey, 0);
+	// [LOCKFIX] 반환값을 m_Handle에 다시 대입하지 않는다.
+	// 이전 코드는 여러 IOCP 스레드에서 동시에 m_Handle을 덮어썼고, 한 번이라도 실패하면(NULL)
+	// 모든 소켓이 쓰는 IOCP 핸들이 NULL로 바뀌는 문제가 있었다.
+	HANDLE Result = CreateIoCompletionPort((HANDLE) socket, m_Handle, completionKey, 0);
 
-	if (!m_Handle)
+	if (!Result)
 		return FALSE;
 
 	return TRUE;
@@ -105,12 +108,13 @@ VOID GSIocp::WorkerThread()
 	OVERLAPPED_EX	*OverlappedEx			= NULL;
 	boost::shared_ptr<GSClient>			Object;
 
+	// [LOCKFIX] 시작 알림은 한 번만 (이전: 완료 통지마다 SetEvent 시스템 호출)
+	SetEvent(m_BeginEvtHandle);
+
 	while (TRUE)
 	{
 		try
 		{
-		
-			SetEvent(m_BeginEvtHandle);
 
 			Successed = GetQueuedCompletionStatus(
 				m_Handle,
@@ -120,7 +124,13 @@ VOID GSIocp::WorkerThread()
 				INFINITE);
 
 			if (!CompletionKey)
+			{
+				// [LOCKFIX] Termination()이 PostQueuedCompletionStatus(m_Handle, 0, 0, NULL)로 보낸 종료 신호.
+				// 이전에는 continue만 해서 워커가 끝나지 않았고 Termination()의 WaitForSingleObject가 영원히 대기했다.
+				if (Overlapped == NULL)
+					return;
 				continue;
+			}
 
 			if(Overlapped == NULL) continue;
 

@@ -30,7 +30,7 @@ GSSocket::~GSSocket(VOID)
 
 BOOL GSSocket::Initialize(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	m_bConnected = FALSE;
 
@@ -45,7 +45,7 @@ BOOL GSSocket::Initialize(VOID)
 
 BOOL GSSocket::Termination(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return FALSE;
@@ -58,7 +58,7 @@ BOOL GSSocket::Termination(VOID)
 
 BOOL GSSocket::Listen(USHORT port, INT backLog)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (port <= 0 || backLog <= 0)
 		return FALSE;
@@ -111,7 +111,7 @@ SOCKET GSSocket::GetSocket(VOID)
 
 SOCKET GSSocket::Connect2(LPSTR address, USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		m_Socket = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);;
@@ -212,7 +212,7 @@ BOOL GSSocket::SetSocketOption(int socket_id, int keep_alive, int keep_idle, int
 
 BOOL GSSocket::Accept(SOCKET listenSocket)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!listenSocket)
 		return FALSE;
@@ -261,7 +261,7 @@ BOOL GSSocket::Accept(SOCKET listenSocket)
 
 BOOL GSSocket::Accept2(SOCKET listenSocket)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!listenSocket)
 		return FALSE;
@@ -305,7 +305,7 @@ BOOL GSSocket::Accept2(SOCKET listenSocket)
 
 BOOL GSSocket::Connect(LPSTR address, USHORT port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!address || port <= 0)
 		return FALSE;
@@ -337,7 +337,7 @@ BOOL GSSocket::Connect(LPSTR address, USHORT port)
 
 BOOL GSSocket::GetLocalIP(std::string& ipaddress, int& port)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if(!m_Socket)
 		return FALSE;
@@ -372,7 +372,7 @@ BOOL GSSocket::GetLocalIP(std::string& ipaddress, int& port)
 
 USHORT GSSocket::GetLocalPort(VOID)
 {
-	CThreadSync Sync;
+	CThreadSync Sync(this);
 
 	if (!m_Socket)
 		return 0;

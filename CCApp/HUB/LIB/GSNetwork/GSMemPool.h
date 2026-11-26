@@ -1,18 +1,17 @@
 #pragma once
 
-template <class T>
-class GSGuard;
+#include "Lock.h"
 
 namespace GSNetwork	{	namespace GSMemPool	{	
 
 template <class T, int ALLOC_BLOCK_SIZE = 500>
-class GSMemPool : public GSGuard<T>
+class GSMemPool	// [LOCKFIX] operator new/delete가 static이라 클래스 단위 static 락을 따로 둔다
 {
 
 public:
 	static VOID* operator new(std::size_t allocLength)
 	{
-		CThreadSync Sync;
+		PoolSync Sync;
 
 		assert(sizeof(T) == allocLength);
 		assert(sizeof(T) >= sizeof(UCHAR*));
@@ -28,7 +27,7 @@ public:
 
 	static VOID	operator delete(VOID* deletePointer)
 	{
-		CThreadSync Sync;
+		PoolSync Sync;
 
 		*reinterpret_cast<UCHAR**>(deletePointer) = mFreePointer;
 		mFreePointer = static_cast<UCHAR*>(deletePointer);
@@ -54,6 +53,13 @@ private:
 
 private:
 	static UCHAR	*mFreePointer;
+	static CGSLock	mPoolSync;
+
+	struct PoolSync
+	{
+		PoolSync()  { mPoolSync.Enter(); }
+		~PoolSync() { mPoolSync.Leave(); }
+	};
 
 protected:
 	~GSMemPool()
@@ -63,5 +69,8 @@ protected:
 
 template <class T, int ALLOC_BLOCK_SIZE>
 UCHAR* GSMemPool<T, ALLOC_BLOCK_SIZE>::mFreePointer;
+
+template <class T, int ALLOC_BLOCK_SIZE>
+CGSLock GSMemPool<T, ALLOC_BLOCK_SIZE>::mPoolSync;
 
 }	}

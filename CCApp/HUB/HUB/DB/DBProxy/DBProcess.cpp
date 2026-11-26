@@ -10,7 +10,7 @@ inline std::string trim_right ( const std::string & source , const std::string &
 CDBProcessCer::CDBProcessCer(void)
 {
 	m_IsOpen = false;
-	InitializeCriticalSection(&m_CS);
+	// [LOCKFIX] 사용하지 않던 m_CS 제거
 
 	m_DB = new MongoDB("CCA");
 	
@@ -18,7 +18,7 @@ CDBProcessCer::CDBProcessCer(void)
 
 CDBProcessCer::~CDBProcessCer(void)
 {
-	DeleteCriticalSection(&m_CS);
+
 
 	delete m_DB;
 }
