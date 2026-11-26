@@ -92,6 +92,7 @@ private:
 
 	DWORD		m_DBId;
 
+	CGSLock m_RoomLock;
 	std::set<DWORD>		m_RoomNumbers;
 
 	std::string			m_Name;

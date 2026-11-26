@@ -7,10 +7,17 @@ namespace GSNetwork	{	namespace GSIocp	{
 
 typedef GSNetwork::GSSocket::GSSocket GSSocket;
 
+namespace
+{
+	thread_local GSIocp* currentIocpWorker = nullptr;
+}
+
 DWORD WINAPI WorkerThread(LPVOID parameter)
 {
 	GSIocp *Owner = (GSIocp*) parameter;	
+	currentIocpWorker = Owner;
 	Owner->WorkerThread();
+	currentIocpWorker = nullptr;
 
 	return 0;
 }
@@ -51,18 +58,51 @@ BOOL GSIocp::Initialize(VOID)
 	for (DWORD i=0;i<m_WTCnt;i++)
 	{
 		HANDLE WorkerThread = CreateThread(NULL, 0, GSNetwork::GSIocp::WorkerThread, this, 0, NULL);
-		m_WTVector.push_back(WorkerThread);
+		if (!WorkerThread)
+		{
+			Termination();
+			return FALSE;
+		}
 
+		m_WTVector.push_back(WorkerThread);
 		WaitForSingleObject(m_BeginEvtHandle, INFINITE);
 	}
 
+	{
+		std::unique_lock<std::shared_timed_mutex> lock(m_SubmissionLock);
+		m_AcceptingWrites = true;
+	}
 	return TRUE;
 }
 
 BOOL GSIocp::Termination(VOID)
 {
+	// The owning thread must stop the port after the callback returns.
+	if (currentIocpWorker == this)
+		return FALSE;
+
+	{
+		std::unique_lock<std::shared_timed_mutex> submissions(m_SubmissionLock);
+		m_AcceptingWrites = false;
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		for (const auto& entry : m_PendingWrites)
+			CancelIoEx(reinterpret_cast<HANDLE>(entry.second), entry.first);
+	}
+	{
+		std::unique_lock<std::mutex> pending(m_PendingWritesLock);
+		m_WritesDrained.wait(pending, [this] { return m_PendingWrites.empty(); });
+	}
+
+	bool portClosed = false;
 	for (DWORD i=0;i<m_WTVector.size();i++)
-		PostQueuedCompletionStatus(m_Handle, 0, 0, NULL);
+	{
+		if (!PostQueuedCompletionStatus(m_Handle, 0, 0, NULL))
+		{
+			CloseHandle(m_Handle);
+			portClosed = true;
+			break;
+		}
+	}
 
 	for (DWORD i=0;i<m_WTVector.size();i++)
 	{
@@ -71,13 +111,15 @@ BOOL GSIocp::Termination(VOID)
 		CloseHandle(m_WTVector[i]);
 	}
 
-	if (m_Handle)
+	if (m_Handle && !portClosed)
 		CloseHandle(m_Handle);
+	m_Handle = NULL;
 
 	m_WTVector.clear();
 
 	if (m_BeginEvtHandle)
 		CloseHandle(m_BeginEvtHandle);
+	m_BeginEvtHandle = NULL;
 
 	return TRUE;
 }
@@ -85,18 +127,42 @@ BOOL GSIocp::Termination(VOID)
 
 BOOL GSIocp::RegIocpHandler(SOCKET socket, ULONG_PTR completionKey)
 {
-	if (!socket || !completionKey)
+	std::shared_lock<std::shared_timed_mutex> lock(m_SubmissionLock);
+	if (!m_AcceptingWrites || !m_Handle || socket == INVALID_SOCKET || !completionKey)
 		return FALSE;
 
-	// [LOCKFIX] 반환값을 m_Handle에 다시 대입하지 않는다.
-	// 이전 코드는 여러 IOCP 스레드에서 동시에 m_Handle을 덮어썼고, 한 번이라도 실패하면(NULL)
-	// 모든 소켓이 쓰는 IOCP 핸들이 NULL로 바뀌는 문제가 있었다.
-	HANDLE Result = CreateIoCompletionPort((HANDLE) socket, m_Handle, completionKey, 0);
+	return CreateIoCompletionPort((HANDLE)socket, m_Handle, completionKey, 0) != NULL;
+}
 
-	if (!Result)
+BOOL GSIocp::SubmitWrite(SOCKET socket, std::unique_ptr<OVERLAPPED_EX> operation, DWORD length, bool addressed)
+{
+	std::shared_lock<std::shared_timed_mutex> submissions(m_SubmissionLock);
+	if (!m_AcceptingWrites)
 		return FALSE;
 
-	return TRUE;
+	WSABUF buffer{length, reinterpret_cast<char*>(operation->SendBuffer)};
+	OVERLAPPED* overlapped = &operation->Overlapped;
+	const SOCKADDR* address = reinterpret_cast<const SOCKADDR*>(&operation->SendAddress);
+	{
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		m_PendingWrites.emplace(overlapped, socket);
+	}
+	// A worker can dequeue completion before the submitting thread returns.
+	operation.release();
+
+	const int result = addressed
+		? WSASendTo(socket, &buffer, 1, nullptr, 0, address, sizeof(SOCKADDR_IN), overlapped, nullptr)
+		: WSASend(socket, &buffer, 1, nullptr, 0, overlapped, nullptr);
+	if (result == 0 || WSAGetLastError() == WSA_IO_PENDING)
+		return TRUE;
+
+	// Winsock sends no completion for a synchronous submission failure.
+	{
+		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+		m_PendingWrites.erase(overlapped);
+	}
+	operation.reset(reinterpret_cast<OVERLAPPED_EX*>(overlapped));
+	return FALSE;
 }
 
 VOID GSIocp::WorkerThread()
@@ -105,10 +171,6 @@ VOID GSIocp::WorkerThread()
 	DWORD			NumberOfByteTransfered	= 0;
 	VOID			*CompletionKey			= NULL;
 	OVERLAPPED		*Overlapped				= NULL;
-	OVERLAPPED_EX	*OverlappedEx			= NULL;
-	boost::shared_ptr<GSClient>			Object;
-
-	// [LOCKFIX] 시작 알림은 한 번만 (이전: 완료 통지마다 SetEvent 시스템 호출)
 	SetEvent(m_BeginEvtHandle);
 
 	while (TRUE)
@@ -123,58 +185,37 @@ VOID GSIocp::WorkerThread()
 				&Overlapped,
 				INFINITE);
 
+			if (!Overlapped)
+			{
+				if (Successed && !CompletionKey)
+					break;
+				if (!Successed && GetLastError() == ERROR_ABANDONED_WAIT_0)
+					break;
+				if (!Successed && GetLastError() == ERROR_INVALID_HANDLE)
+					break;
+				continue;
+			}
+
+			std::unique_ptr<OVERLAPPED_EX> OverlappedEx(reinterpret_cast<OVERLAPPED_EX*>(Overlapped));
+			if (OverlappedEx->IoType == IO_WRITE)
+			{
+				std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+				m_PendingWrites.erase(Overlapped);
+				if (m_PendingWrites.empty())
+					m_WritesDrained.notify_all();
+			}
+
 			if (!CompletionKey)
-			{
-				// [LOCKFIX] Termination()이 PostQueuedCompletionStatus(m_Handle, 0, 0, NULL)로 보낸 종료 신호.
-				// 이전에는 continue만 해서 워커가 끝나지 않았고 Termination()의 WaitForSingleObject가 영원히 대기했다.
-				if (Overlapped == NULL)
-					return;
 				continue;
-			}
-
-			if(Overlapped == NULL) continue;
-
-	
-			boost::shared_ptr<OVERLAPPED_EX> OverlappedEx((OVERLAPPED_EX*)Overlapped);
-
-	
-			if(Overlapped == NULL && Successed == FALSE)
+			if (!Successed)
 			{
-				if(Object != NULL)
-				{
-					OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-				}
-				continue;
-			}
-
-			if(Overlapped == NULL) continue;
-
-			if(Successed == FALSE && Overlapped != NULL && Object != NULL)
-			 {
-				DWORD dwError = GetLastError();
-				if(dwError==ERROR_OPERATION_ABORTED || dwError==ERROR_NETNAME_DELETED)
-				{
-				//	if(pCommon->GetSocketStatus() != STATUS_DISCONNECTED)
-					if(Object->GetConnected() ==  TRUE)
-					{
-						OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-						continue;
-					}
-				}
-				
 				OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
 				continue;
 			}
 
-			if (!Successed || (Successed && !NumberOfByteTransfered))
+			if (OverlappedEx->IoType == IO_ACCEPT)
 			{
-				if (OverlappedEx->IoType == IO_ACCEPT)
-					OnConnected(OverlappedEx->ObjectId);
-				else
-				{
-					OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
-				}
-
+				OnConnected(OverlappedEx->ObjectId);
 				continue;
 			}
 
@@ -243,12 +284,6 @@ VOID GSIocp::Close(SOCKET client)
 		ex->IoType = IO_READ;
 
 		PostQueuedCompletionStatus(m_Handle, 0, (ULONG_PTR)ex, (LPOVERLAPPED)ex);*/
-
-
-		TCHAR szExeFileName[MAX_PATH];
-		GetModuleFileName(NULL, szExeFileName, MAX_PATH);
-
-//		printf("close call %s\n", szExeFileName);
 
 		closesocket(client);
 }

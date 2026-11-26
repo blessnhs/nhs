@@ -13,8 +13,7 @@ ProxyHubContainer::~ProxyHubContainer(void)
 
 bool ProxyHubContainer::Add(GSCLIENT_PTR& pObj)
 {
-	int id = pObj->GetId();
-
+	std::lock_guard<CGSLock> lock(m_ProxyLock);
 	m_Proxy_Map[pObj->GetId()] = pObj;
 
 	return TRUE;
@@ -22,15 +21,18 @@ bool ProxyHubContainer::Add(GSCLIENT_PTR& pObj)
 
 bool ProxyHubContainer::Del(GSCLIENT_PTR& pObj)
 {
-	int id = pObj->GetId();
+	std::lock_guard<CGSLock> lock(m_ProxyLock);
+	auto iter = m_Proxy_Map.find(pObj->GetId());
+	if (iter == m_Proxy_Map.end() || iter->second != pObj)
+		return false;
 
-	m_Proxy_Map[pObj->GetId()] = NULL;
-
-	return TRUE;
+	m_Proxy_Map.unsafe_erase(iter);
+	return true;
 }
 
 GSCLIENT_PTR ProxyHubContainer::Search(INT64 Id)
 {
+	std::lock_guard<CGSLock> lock(m_ProxyLock);
 	auto iter = m_Proxy_Map.find(Id);
 	if (iter != m_Proxy_Map.end())
 	{
@@ -42,13 +44,11 @@ GSCLIENT_PTR ProxyHubContainer::Search(INT64 Id)
 
 GSCLIENT_PTR ProxyHubContainer::GetHub(unsigned long id)
 {
+	std::lock_guard<CGSLock> lock(m_ProxyLock);
 	std::vector< GSCLIENT_PTR> vt;
 
-	for each (auto proxy in m_Proxy_Map)
+	for (const auto& proxy : m_Proxy_Map)
 	{
-		if (proxy.second == NULL)
-			continue;
-
 		if (proxy.second->GetConnected() == false)
 			continue;
 
@@ -78,9 +78,8 @@ void ProxyHubContainer::Create(INT Count)
 		}
 
 
+		pClient->SetHandler<HubProcess>();
 		Add(pClient);
-
-		pClient->SetHandler< HubProcess>();
 	}
 
 	TryConnect();
@@ -90,53 +89,54 @@ void ProxyHubContainer::Create(INT Count)
 
 void ProxyHubContainer::TryConnect()
 {
-	GSServer::GSServer* pServer = (GSServer::GSServer*)&SERVER;
+	std::unique_lock<CGSLock> connectLock(m_ConnectLock, std::try_to_lock);
+	if (!connectLock.owns_lock())
+		return;
 
-	for each(auto proxy in m_Proxy_Map)
+	std::vector<GSCLIENT_PTR> clients;
 	{
-		GSCLIENT_PTR pClient = proxy.second;
-		if (pClient == NULL)
+		std::lock_guard<CGSLock> lock(m_ProxyLock);
+		for (const auto& proxy : m_Proxy_Map)
+			clients.push_back(proxy.second);
+	}
+
+	for (const auto& client : clients)
+	{
+		if (client->GetConnected() || Search(client->GetId()) != client)
 			continue;
 
-		if (pClient->GetConnected() == TRUE)
+		auto socket = client->GetTCPSocket();
+		const SOCKET handle = socket->Connect2(INI.HubIp, INI.HubPort);
+		if (!handle)
+		{
+			socket->Termination();
+			SYSLOG().Write("ProxyHubContainer: HUB connect failed\n");
 			continue;
-
-
-		if (!pClient->GetTCPSocket()->Connect2(INI.HubIp, INI.HubPort))
-		{
-			SYSLOG().Write(" ProxyHubContainer::Initialize failed...2 \n");
-			break;
 		}
 
-		pClient->SetConnected(true);
-
-		int id = pClient->GetId();
-		if (!pServer->RegIocpHandler(pClient->GetTCPSocket()->GetSocket(), reinterpret_cast<ULONG_PTR>(&id)))
+		if (!socket->RegisterIocp(SERVER, static_cast<ULONG_PTR>(client->GetId()) + 1) ||
+			!socket->Initialize())
 		{
-			SYSLOG().Write(" ProxyHubContainer::Initialize failed...3 \n");
-			Del(pClient);
-
-			SERVER.Close(pClient->GetTCPSocket()->GetSocket());
-			break;
+			socket->Termination();
+			SYSLOG().Write("ProxyHubContainer: HUB socket setup failed\n");
+			continue;
 		}
 
-		if (!pClient->GetTCPSocket()->Initialize())
+		// A first completion can arrive as soon as the read is submitted.
+		// Publish readiness before an IOCP disconnect handler can inspect it.
+		bool readStarted = false;
 		{
-			SYSLOG().Write(" ProxyHubContainer::Initialize failed...4 \n");
-			Del(pClient);
-			SERVER.Close(pClient->GetTCPSocket()->GetSocket());
-
-			break;
+			GSCLIENT::CThreadSync clientLock(client.get());
+			if (Search(client->GetId()) == client && client->InitializeReadForIocp())
+			{
+				client->SetConnected(true);
+				readStarted = true;
+			}
 		}
-
-		if (!pClient->InitializeReadForIocp())
+		if (!readStarted)
 		{
-			SYSLOG().Write(" ProxyHubContainer::Initialize failed...5 \n");
-			Del(pClient);
-			SERVER.Close(pClient->GetTCPSocket()->GetSocket());
-
-			break;
+			socket->Termination();
+			SYSLOG().Write("ProxyHubContainer: HUB read registration failed\n");
 		}
 	}
 }
-

@@ -82,8 +82,8 @@ bool GSServer::Create(GSArgument arg)
 
 	MAINPROC.Activate(MSG_TYPE_LOG   ,1);
 	
-	BeginTCP();
-	BeginUDP();
+	if (!BeginTCP() || !BeginUDP())
+		return false;
 
 	
 
@@ -143,7 +143,8 @@ VOID GSServer::OnWrote(int client_id, DWORD dataLength)
 	if(pClient->GetCreateType() == TCP)
 		pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 
-	pClient->WriteComplete();
+	else if (pClient->GetCreateType() == UDP)
+		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 }
 
 VOID GSServer::OnConnected(int client_id)
@@ -167,7 +168,7 @@ VOID GSServer::OnConnected(int client_id)
 	// [LOCKFIX] completion key는 워커에서 NULL 여부만 확인한다(실제 식별은 OVERLAPPED_EX::ObjectId).
 	// 이전에는 공유 멤버 m_EvtClientId의 주소를 넘겨서 이 멤버를 보호하려고 전역 락이 필요했다.
 
-	if (!GSIocp::RegIocpHandler(pClient->GetSocket(), reinterpret_cast<ULONG_PTR>(this)))
+	if (!pClient->GetTCPSocket()->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(this)))
 	{
 		SYSLOG().Write("Connected exception ...1\n");
 		//이코드에서 그냥 close하면 gsclient는 서버에 접속도 못하는 미아 객체가 됨
@@ -241,6 +242,10 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 
 
 	}
+	else if (pClient->GetCreateType() == UDP && type == IO_TYPE::IO_WRITE)
+	{
+		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+	}
 }
 
 GSCLIENT_PTR GSServer::GetTcpListen()
@@ -260,7 +265,11 @@ GSClientMgr::GSClientMgr&	GSServer::GetClientMgr()
 
 VOID GSServer::End(VOID)
 {
-	GSIocp::Termination();
+	if (!GSIocp::Termination())
+	{
+		SYSLOG().Write("IOCP shutdown must be requested outside its worker thread\n");
+		return;
+	}
 
 	m_ClientMgr.End();
 
@@ -358,7 +367,7 @@ BOOL GSServer::BeginUDP()
 			return FALSE;
 		}
 
-		if (!GSIocp::RegIocpHandler(UDPListenPort->GetSocket(), reinterpret_cast<ULONG_PTR>(UDPListenPort->GetUDPSocket().get())))
+		if (!UDPListenPort->GetUDPSocket()->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(UDPListenPort->GetUDPSocket().get())))
 		{
 			GSServer::End();
 

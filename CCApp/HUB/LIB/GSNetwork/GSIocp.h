@@ -1,5 +1,13 @@
 #pragma once
 
+#include <condition_variable>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+
+struct _OVERLAPPED_EX;
+
 class GSClient;
 
 namespace GSNetwork	{	namespace GSIocp	{
@@ -17,6 +25,11 @@ private:
 	std::vector<HANDLE>	m_WTVector;
 
 	HANDLE				m_BeginEvtHandle;
+	std::shared_timed_mutex m_SubmissionLock;
+	bool m_AcceptingWrites = false;
+	std::mutex m_PendingWritesLock;
+	std::condition_variable m_WritesDrained;
+	std::map<OVERLAPPED*, SOCKET> m_PendingWrites;
 
 protected:
 	virtual VOID		OnRead(int client_id, DWORD dataLength)	= 0;
@@ -30,6 +43,7 @@ public:
 	BOOL				Termination(VOID);
 	
 	BOOL				RegIocpHandler(SOCKET socket, ULONG_PTR completionKey);
+	BOOL SubmitWrite(SOCKET socket, std::unique_ptr<_OVERLAPPED_EX> operation, DWORD length, bool addressed);
 
 	VOID				WorkerThread(VOID);
 	

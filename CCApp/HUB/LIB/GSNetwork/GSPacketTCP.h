@@ -41,6 +41,10 @@ private:
 	// [LOCKFIX] 조립이 끝난 버퍼를 송신 큐에 넣고 WSASend (이 구간만 락)
 	BOOL	SendBuiltPacket(BYTE* SendBuff, DWORD PacketLength);
 
+private:
+	BOOL ReadPacketLocked(DWORD readLength);
+	BOOL GetPacketLocked();
+
 };
 
 }	}	}	}

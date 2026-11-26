@@ -74,16 +74,19 @@ void Player::Initialize()
 
 VOID Player::DelRoom(DWORD _id)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	m_RoomNumbers.erase(_id);
 }
 
 VOID Player::SetRoom(DWORD _id)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	m_RoomNumbers.insert(_id);
 }
 
 std::set<DWORD> Player::GetRoom()
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	return m_RoomNumbers;
 }
 

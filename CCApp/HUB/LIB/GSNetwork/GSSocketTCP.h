@@ -23,6 +23,9 @@ public:
 
 	VOID SetConnected(BOOL bConnected);
 	BOOL GetConnected(VOID);
+
+protected:
+	BOOL WriteOwned(std::unique_ptr<BYTE[]> data, DWORD length);
 };
 
 }	}	}

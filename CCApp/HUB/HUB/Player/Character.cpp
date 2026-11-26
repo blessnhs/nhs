@@ -55,16 +55,19 @@ bool Character::GetReady()
 
 VOID Character::DelRoom(DWORD _id)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	m_RoomNumbers.erase(_id);
 }
 
 VOID Character::SetRoom(DWORD _id)
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	m_RoomNumbers.insert(_id);
 }
 
 std::set<DWORD> Character::GetRoom()
 {
+	std::lock_guard<CGSLock> lock(m_RoomLock);
 	return m_RoomNumbers;
 }
 

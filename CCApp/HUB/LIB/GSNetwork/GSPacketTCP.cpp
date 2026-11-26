@@ -21,7 +21,7 @@ GSPacketTCP::~GSPacketTCP(void)
 
 BOOL	GSPacketTCP::Initialize(VOID)
 {
-	CThreadSync Sync(this);
+	CThreadSync Sync(*this);
 
 	GSPacket::Initialize();
 
@@ -31,7 +31,7 @@ BOOL	GSPacketTCP::Initialize(VOID)
 BOOL	GSPacketTCP::Termination(VOID)
 {
 		
-	CThreadSync Sync(this);
+	CThreadSync Sync(*this);
 
 	GSPacket::Termination();
 #ifndef CLIENT_MODULE
@@ -47,6 +47,12 @@ BOOL	GSPacketTCP::Termination(VOID)
 // m_PacketBuffer / m_RemainLength는 한 시점에 한 스레드만 접근한다.
 // 덕분에 gzip 해제 중에도 같은 소켓의 송신이 막히지 않는다.
 BOOL	GSPacketTCP::ReadPacket(DWORD ReadSize)
+{
+	CThreadSync Sync(*this);
+	return ReadPacketLocked(ReadSize);
+}
+
+BOOL GSPacketTCP::ReadPacketLocked(DWORD ReadSize)
 {
 	if (m_Max_Packet_Buffer_Size <= (ReadSize +m_RemainLength))
 	{
@@ -76,7 +82,7 @@ BOOL	GSPacketTCP::ReadPacket(DWORD ReadSize)
 
 BOOL	GSPacketTCP::ReadPacketForEventSelect()
 {
-	CThreadSync Sync(this);
+	CThreadSync Sync(*this);
 
 	DWORD ReadLength = 0;
 
@@ -121,7 +127,6 @@ BOOL	GSPacketTCP::ReadPacketForEventSelect()
 //	pWriteData->DataLength = Size;
 //	pWriteData->Object = this;
 //#ifndef CLIENT_MODULE	
-//	m_WrietQueue.push(pWriteData);
 //#endif
 //	return GSSocketTCP::Write((BYTE*)pWriteData->Data, Size);
 //}
@@ -175,48 +180,20 @@ static BYTE* BuildTcpPacket(WORD MainProtocol, WORD SubProtocol, BYTE CompressFl
 
 BOOL	GSPacketTCP::SendBuiltPacket(BYTE* SendBuff, DWORD PacketLength)
 {
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData;
-	try
-	{
-		pWriteData.reset(new WRITE_PACKET_INFO);
-	}
-	catch (...)
-	{
-		delete[] SendBuff;
-		throw;
-	}
-
-	pWriteData->Data = SendBuff;			// 소유권 이전 (WRITE_PACKET_INFO 소멸자에서 delete[])
-	pWriteData->DataLength = PacketLength;
-
-	CThreadSync Sync(this);
-
+	std::unique_ptr<BYTE[]> packet(SendBuff);
+	CThreadSync sync(*this);
 	memcpy(SendBuff + TCP_PACKET_SEQUENCE_OFFSET, &m_SequenceNum, sizeof(DWORD));
-
-#ifndef CLIENT_MODULE	
-	m_WrietQueue.push(pWriteData);
-#endif	
-
-	return GSSocketTCP::Write(pWriteData);
+	return WriteOwned(std::move(packet), PacketLength);
 }
 
 BOOL	GSPacketTCP::WriteRaw(const BYTE* Data, DWORD Length)
 {
-	if (!Data || Length == 0)
+	if (!Data || !Length)
 		return FALSE;
 
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData(new WRITE_PACKET_INFO);
-	pWriteData->Data = new BYTE[Length];
-	pWriteData->DataLength = Length;
-	memcpy(pWriteData->Data, Data, Length);
-
-	CThreadSync Sync(this);
-
-#ifndef CLIENT_MODULE	
-	m_WrietQueue.push(pWriteData);
-#endif	
-
-	return GSSocketTCP::Write(pWriteData);
+	auto packet = std::make_unique<BYTE[]>(Length);
+	memcpy(packet.get(), Data, Length);
+	return WriteOwned(std::move(packet), Length);
 }
 
 BOOL	GSPacketTCP::WritePacketNoneCompress(WORD MainProtocol, WORD SubProtocol, const BYTE* Packet, DWORD PayloadSize, long long Reserve2)
@@ -269,28 +246,14 @@ BOOL	GSPacketTCP::WritePacket(WORD MainProtocol,WORD SubProtocol, const BYTE * P
 
 BOOL GSPacketTCP::WriteComplete(VOID)
 {
-#ifndef CLIENT_MODULE
-	if(m_WrietQueue.unsafe_size() == 0) return FALSE;
-
-	boost::shared_ptr<WRITE_PACKET_INFO> pWriteData;
-
-	if (m_WrietQueue.try_pop(pWriteData) == true)
-	{
-	}
-
-
-#endif	
-
-	
-
 	return TRUE;
 }
 
 VOID GSPacketTCP::MakePacket(DWORD &dwPacketLength )
 {
-	if (ReadPacket(dwPacketLength))
+	if (ReadPacketLocked(dwPacketLength))
 	{
-		while (GetPacket())
+		while (GetPacketLocked())
 		{
 			
 		}
@@ -302,6 +265,12 @@ VOID GSPacketTCP::MakeMsg(WORD Mainprotocol, WORD Subprotocol,DWORD dataLength)
 }
 
 BOOL GSPacketTCP::GetPacket()
+{
+	CThreadSync Sync(*this);
+	return GetPacketLocked();
+}
+
+BOOL GSPacketTCP::GetPacketLocked()
 {
 	if (m_RemainLength <= sizeof(DWORD))
 		return FALSE;
