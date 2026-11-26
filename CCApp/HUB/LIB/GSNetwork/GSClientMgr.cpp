@@ -64,9 +64,8 @@ VOID GSClientMgr::CheckAliveTime()
 			DWORD client_time = client->GetAliveTime();
 			DWORD server_check_time = pServer->GetArgument().m_AliveTime;
 			DWORD system_tick = GetTickCount();
-			int Diff = system_tick - (client_time + server_check_time);
 
-			if (server_check_time != 0 && client_time != 0 && (client_time + server_check_time) <= system_tick)
+			if (server_check_time != 0 && client_time != 0 && system_tick - client_time >= server_check_time)
 			{
 				if (client->GetClientType() != ClientType::SERVER_CLIENT)
 				{

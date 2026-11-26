@@ -45,22 +45,20 @@ GSCLIENT_PTR ProxyHubContainer::Search(INT64 Id)
 GSCLIENT_PTR ProxyHubContainer::GetHub(unsigned long id)
 {
 	std::lock_guard<CGSLock> lock(m_ProxyLock);
-	std::vector< GSCLIENT_PTR> vt;
-
+	// Reuse allocation across packets without retaining session references.
+	thread_local std::vector<const GSCLIENT_PTR*> connected;
+	connected.clear();
 	for (const auto& proxy : m_Proxy_Map)
 	{
-		if (proxy.second->GetConnected() == false)
-			continue;
-
-		vt.push_back(proxy.second);
+		if (proxy.second->GetConnected())
+			connected.push_back(&proxy.second);
 	}
 
-	if(vt.size() == 0)
-		return GSCLIENT_PTR();
-	else
-	{
-		return vt[id % vt.size()];
-	}
+	GSCLIENT_PTR hub;
+	if (!connected.empty())
+		hub = *connected[id % connected.size()];
+	connected.clear();
+	return hub;
 }
 
 

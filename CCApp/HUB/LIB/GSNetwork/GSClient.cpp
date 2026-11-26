@@ -195,12 +195,12 @@ VOID GSClient::OnResponse(LPVOID Data)
 
 void GSClient::SetAliveTime(DWORD Time)
 {
-	m_AliveTime = Time;
+	m_AliveTime.store(Time, std::memory_order_relaxed);
 }
 
 DWORD GSClient::GetAliveTime()
 {
-	return m_AliveTime;
+	return m_AliveTime.load(std::memory_order_relaxed);
 }
 
 void GSClient::IncDBStamp()
@@ -272,34 +272,28 @@ VOID GSClient::ProcPacket(boost::shared_ptr<GSClient> pClient)
 
 	if (GetCreateType() == TCP)
 	{
-		int size = (int)GetTCPSocket()->m_PacketList.unsafe_size();
-
 		while (GetTCPSocket()->m_PacketList.try_pop(pBuffer) == TRUE)
 		{
-			size = (int)GetTCPSocket()->m_PacketList.unsafe_size();
-
 			if (pBuffer == NULL) return;
 
-			if (GetProcess() == NULL)
+			auto handler = GetProcess();
+			if (!handler)
 			{
 				SYSLOG().Write("set process is null");
 				return;
 			}
 
-			GetProcess()->Process(pBuffer, pClient);
+			handler->Process(pBuffer, pClient);
 		}
 	}
 	else if (GetCreateType() == UDP)
 	{
-		int size = (int)GetUDPSocket()->m_PacketList.unsafe_size();
-
 		while (GetUDPSocket()->m_PacketList.try_pop(pBuffer) == TRUE)
 		{
-			size = (int)GetUDPSocket()->m_PacketList.unsafe_size();
-
 			if (pBuffer == NULL) return;
 
-			if (GetProcess() == NULL)
+			auto handler = GetProcess();
+			if (!handler)
 			{
 				SYSLOG().Write("set process is null\n");
 
@@ -308,7 +302,7 @@ VOID GSClient::ProcPacket(boost::shared_ptr<GSClient> pClient)
 				return;			
 			}
 
-			GetProcess()->Process2(pBuffer, pClient, pBuffer->LemoteAddress, pBuffer->RemotePort);
+			handler->Process2(pBuffer, pClient, pBuffer->LemoteAddress, pBuffer->RemotePort);
 		}
 	}
 

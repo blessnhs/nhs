@@ -9,6 +9,9 @@
 
 #pragma comment(lib, "Rpcrt4.lib")
 
+#include <array>
+#include <mutex>
+
 using bsoncxx::builder::stream::close_array;
 using bsoncxx::builder::stream::close_document;
 using bsoncxx::builder::stream::document;
@@ -569,14 +572,10 @@ int  MongoDB::DeleteAllConcurrentUser()
 }
 
 
-int64_t MongoDB::GetNextIndex()
+static int64_t NextIndex(mongocxx::database& db)
 {
 	try
 	{
-		auto _client = pool.acquire();
-		mongocxx::client& client = *_client;
-
-		auto db = client[default_db_name];
 
 		auto collection = db["INDEX"];
 
@@ -596,6 +595,12 @@ int64_t MongoDB::GetNextIndex()
 		}
 		else
 		{
+			static std::mutex initializationLock;
+			std::lock_guard<std::mutex> lock(initializationLock);
+			serverQuery = collection.find_one_and_update(query.view(), update.view());
+			if (serverQuery)
+				return serverQuery->view()["INDEX"].get_int64();
+
 			auto builder = bsoncxx::builder::stream::document{};
 			bsoncxx::document::value doc_value = builder
 				<< "INDEX" << bsoncxx::types::b_int64()
@@ -620,7 +625,22 @@ int64_t MongoDB::GetNextIndex()
 	catch (...)
 	{
 		printf("exception GetNextIndex \n");
-		return 0;
+		return -1;
+	}
+}
+
+int64_t MongoDB::GetNextIndex()
+{
+	try
+	{
+		auto client = pool.acquire();
+		auto db = (*client)[default_db_name];
+		return NextIndex(db);
+	}
+	catch (...)
+	{
+		printf("exception acquiring a client for GetNextIndex\n");
+		return -1;
 	}
 }
 
@@ -659,7 +679,9 @@ int		MongoDB::ProcedureUserLogin(std::string google_uid, std::string pwd, std::s
 			///////////////////////////////////////////////////////////
 			///////insert 
 			{
-				int64_t index = GetNextIndex();
+				int64_t index = NextIndex(db);
+				if (index < 0)
+					return -1;
 
 				auto builder = bsoncxx::builder::stream::document{};
 				bsoncxx::document::value doc_value = builder
@@ -724,7 +746,7 @@ int		MongoDB::ProcedureUserLogin(std::string google_uid, std::string pwd, std::s
 	catch (...)
 	{
 		printf("exception ProcedureUserLogin \n");
-		return 0;
+		return -1;
 	}
 }
 
@@ -742,7 +764,9 @@ int MongoDB::CreateRoom(string room_name, INT64& user_id, string user_name)
 
 		mongocxx::collection user_collection = db["ROOM_USERS"];
 
-		int64_t rooom_index = GetNextIndex();
+		int64_t rooom_index = NextIndex(db);
+		if (rooom_index < 0)
+			return -1;
 
 		auto builder = bsoncxx::builder::stream::document{};
 		bsoncxx::document::value doc_value = builder
@@ -797,8 +821,18 @@ int MongoDB::CreateRoom(string room_name, INT64& user_id, string user_name)
 	}
 }
 
+namespace
+{
+	std::mutex& RoomMembershipLock(int roomId)
+	{
+		static std::array<std::mutex, 64> locks;
+		return locks[static_cast<unsigned int>(roomId) % locks.size()];
+	}
+}
+
 int MongoDB::EnterRoom(int room_id, INT64& user_id, string user_name)
 {
+	std::lock_guard<std::mutex> lock(RoomMembershipLock(room_id));
 	try
 	{
 		auto _client = pool.acquire();
@@ -852,13 +886,14 @@ int MongoDB::EnterRoom(int room_id, INT64& user_id, string user_name)
 	}
 	catch (...)
 	{
-		printf("exception ProcedureUserLogin \n");
-		return 0;
+		printf("exception EnterRoom\n");
+		return -1;
 	}
 }
 
 int MongoDB::LeaveRoom(int room_id, INT64 user_id, string user_name)
 {
+	std::lock_guard<std::mutex> lock(RoomMembershipLock(room_id));
 	try
 	{
 		auto _client = pool.acquire();
@@ -896,8 +931,8 @@ int MongoDB::LeaveRoom(int room_id, INT64 user_id, string user_name)
 	}
 	catch (...)
 	{
-		printf("exception ProcedureUserLogin \n");
-		return 0;
+		printf("exception LeaveRoom\n");
+		return -1;
 	}
 }
 

@@ -64,7 +64,7 @@ VOID HubProcess::Process(boost::shared_ptr<XDATA> pBuffer, boost::shared_ptr<GSC
 		PlayerPtr pPlayer = PLAYERMGR.SearchByFrontSid(pBuffer->Reserve2);
 		if (pPlayer != NULL)
 		{
-			pPlayer->m_AliveTime = GetTickCount();
+			pPlayer->m_AliveTime.store(GetTickCount(), std::memory_order_relaxed);
 		}
 
 		//로그인 하지 않은 유저가 패킷을 요청 했을때

@@ -2,6 +2,7 @@
 #include "GSIocp.h"
 #include "GSSocket.h"
 #include "GSClient.h"
+#include <chrono>
 
 namespace GSNetwork	{	namespace GSIocp	{
 
@@ -81,16 +82,34 @@ BOOL GSIocp::Termination(VOID)
 	if (currentIocpWorker == this)
 		return FALSE;
 
+	DWORD cancellationError = ERROR_SUCCESS;
 	{
 		std::unique_lock<std::shared_timed_mutex> submissions(m_SubmissionLock);
 		m_AcceptingWrites = false;
 		std::lock_guard<std::mutex> pending(m_PendingWritesLock);
 		for (const auto& entry : m_PendingWrites)
-			CancelIoEx(reinterpret_cast<HANDLE>(entry.second), entry.first);
+		{
+			if (!CancelIoEx(reinterpret_cast<HANDLE>(entry.second), entry.first))
+			{
+				const DWORD error = GetLastError();
+				if (error != ERROR_NOT_FOUND && cancellationError == ERROR_SUCCESS)
+					cancellationError = error;
+			}
+		}
 	}
+	if (cancellationError != ERROR_SUCCESS)
+		SYSLOG().Write("IOCP send cancellation returned error %lu\n", cancellationError);
+
 	{
 		std::unique_lock<std::mutex> pending(m_PendingWritesLock);
-		m_WritesDrained.wait(pending, [this] { return m_PendingWrites.empty(); });
+		while (!m_WritesDrained.wait_for(pending, std::chrono::seconds(5),
+			[this] { return m_PendingWrites.empty(); }))
+		{
+			const size_t outstanding = m_PendingWrites.size();
+			pending.unlock();
+			SYSLOG().Write("IOCP shutdown waiting for %zu send completions\n", outstanding);
+			pending.lock();
+		}
 	}
 
 	bool portClosed = false;

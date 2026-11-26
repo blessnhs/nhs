@@ -79,12 +79,12 @@ public:
 	void SetMachineId(std::string& _MachineId);
 
 	Account		m_Account;
-	DWORD		m_AliveTime;
+	std::atomic<DWORD>		m_AliveTime{0};
 
 
 private:
 
-	DWORD       m_PairSessionId;
+	std::atomic<DWORD>       m_PairSessionId{0};
 	DWORD		m_ChannelId;
 
 	DWORD		m_FrontId;

@@ -240,10 +240,11 @@ template<template<class T> class CreationPolicy> void PlayerContainer<CreationPo
 
 		WORD SessionId = pPlayer->GetPair();
 
-		DWORD CurrentTick = GetTickCount();
+		const DWORD aliveTime = pPlayer->m_AliveTime.load(std::memory_order_relaxed);
+		const DWORD CurrentTick = GetTickCount();
 
 		//5분보다 크다
-		if (CurrentTick > pPlayer->m_AliveTime + (1000 * 60 * 5))
+		if (CurrentTick - aliveTime > 1000u * 60 * 5)
 		{
 			BLOG("Player Client %lld AliveTime Check \n", pPlayer->GetId());
 

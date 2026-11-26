@@ -119,7 +119,7 @@ private:
 	boost::shared_ptr<GSPacketTCP>					m_TCPSocket;
 	boost::shared_ptr<GSPacketUDP>					m_UDPSocket;
 
-	DWORD											m_AliveTime;
+	std::atomic<DWORD>											m_AliveTime{0};
 
 	BOOL											m_WillBeTerminated;
 	DWORD											m_DBStamp;
@@ -128,7 +128,7 @@ private:
 	std::map<std::wstring,stPacketContext>			m_CheckAbuseMap;
 	std::map<std::wstring,bool>						m_CheckCompleteMap;
 
-	INT64 											m_PairPlayerId;
+	std::atomic<INT64> 											m_PairPlayerId{0};
 
 public:
 	LPVOID											m_GSServer;

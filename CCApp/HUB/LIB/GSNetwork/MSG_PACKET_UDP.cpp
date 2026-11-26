@@ -17,12 +17,13 @@ void MSG_PACKET_UDP::Execute(LPVOID Param)
 		{
 			pClient->GetUDPSocket()->m_PacketList.try_pop(pBuffer);
 
-			if(pClient->GetProcess() == NULL)
+			auto handler = pClient->GetProcess();
+			if (!handler)
 			{
 			//	pClient->SetProcess( new IUdpProcess() );
 			}
 
-			pClient->GetProcess()->Process(pBuffer,pClient);
+			handler->Process(pBuffer,pClient);
 		}
 	}
 }
