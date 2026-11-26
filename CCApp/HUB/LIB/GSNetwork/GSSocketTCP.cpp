@@ -180,15 +180,14 @@ VOID GSSocketTCP::SetConnected(BOOL bConnected)
 	CThreadSync Sync(*this);
 	m_bConnected = bConnected;
 }
-BOOL GSSocketTCP::GetConnected(VOID) 
-{ 
-	CThreadSync Sync(*this);
-	return m_bConnected;
-}
-
-BOOL GSSocketTCP::Write(boost::shared_ptr<WRITE_PACKET_INFO> Packet)
+// [LOCKFIX] BOOL 하나를 읽고 쓰는 데 락은 과함 -> Interlocked
+VOID GSSocketTCP::SetConnected(BOOL bConnected)
 {
-	return Packet && Write(Packet->Data, Packet->DataLength);
+	InterlockedExchange(reinterpret_cast<volatile LONG*>(&m_bConnected), (LONG)bConnected);
+}
+BOOL GSSocketTCP::GetConnected(VOID)
+{
+	return (BOOL)InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(&m_bConnected), 0, 0);
 }
 
 BOOL GSSocketTCP::Write(BYTE * Data, DWORD DataLength)
