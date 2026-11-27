@@ -116,6 +116,7 @@ VOID GSServer::OnRead(int client_id, DWORD dataLength)
 	}
 	else if (pClient->GetCreateType() == UDP)
 	{
+		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
 		pClient->OnRecv(dataLength, pClient);
 
 		if (!pClient->InitializeReadForIocp())
@@ -265,9 +266,12 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 
 
 	}
-	else if (pClient->GetCreateType() == UDP && type == IO_TYPE::IO_WRITE)
+	else if (pClient->GetCreateType() == UDP)
 	{
-		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+		if (type == IO_TYPE::IO_READ)
+			pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
+		else if (type == IO_TYPE::IO_WRITE)
+			pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 	}
 }
 

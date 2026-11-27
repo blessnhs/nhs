@@ -74,9 +74,8 @@ BOOL GSSocketTCP::InitializeReadForIocp(VOID)
 	WsaBuf.buf			= (CHAR*)m_ReceiveBuffer;
 	WsaBuf.len			= MAX_BUFFER_LENGTH;
 
-	m_OLP_REMAIN_COUNT_REC.fetch_add(1);
-
 	OVERLAPPED_EX* m_Read_OLP = new OVERLAPPED_EX;
+	m_OLP_REMAIN_COUNT_REC.fetch_add(1);
 	m_Read_OLP->IoType = IO_READ;
 	m_Read_OLP->ObjectId = m_ClientId;
 
@@ -92,9 +91,10 @@ BOOL GSSocketTCP::InitializeReadForIocp(VOID)
 	if (ReadBytes > MAX_BUFFER_LENGTH)
 		SYSLOG().Write("wsa recv size over!!\n");
 
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
+	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
 	{
 		m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
+		delete m_Read_OLP;
 		Termination();
 
 		return FALSE;

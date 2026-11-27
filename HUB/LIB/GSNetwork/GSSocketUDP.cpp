@@ -176,9 +176,10 @@ BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 		&m_Read_OLP->Overlapped,
 		NULL);
 
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
+	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
 	{
 		m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
+		delete m_Read_OLP;
 		Termination();
 
 		return FALSE;

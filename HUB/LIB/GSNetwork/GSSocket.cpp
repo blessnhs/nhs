@@ -152,8 +152,16 @@ BOOL GSSocket::SubmitWrite(std::unique_ptr<BYTE[]> data, DWORD length, const SOC
 	if (m_Iocp)
 	{
 		m_OLP_REMAIN_COUNT_SND.fetch_add(1);
-		if (m_Iocp->SubmitWrite(m_Socket, std::move(operation), length, address != nullptr))
-			return TRUE;
+		try
+		{
+			if (m_Iocp->SubmitWrite(m_Socket, std::move(operation), length, address != nullptr))
+				return TRUE;
+		}
+		catch (...)
+		{
+			m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+			throw;
+		}
 		m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 		return FALSE;
 	}
@@ -297,9 +305,8 @@ BOOL GSSocket::Accept(SOCKET listenSocket)
 		return FALSE;
 	}
 
-	m_OLP_REMAIN_COUNT_ACC.fetch_add(1);
-
 	OVERLAPPED_EX* m_Accept_OLP = new OVERLAPPED_EX;
+	m_OLP_REMAIN_COUNT_ACC.fetch_add(1);
 	m_Accept_OLP->IoType = IO_ACCEPT;
 	m_Accept_OLP->ObjectId = m_ClientId;
 
@@ -315,9 +322,10 @@ BOOL GSSocket::Accept(SOCKET listenSocket)
 		&m_Accept_OLP->Overlapped))
 	{
 		int ErrorCode = WSAGetLastError();
-		if (ErrorCode != ERROR_IO_PENDING && ErrorCode != WSAEWOULDBLOCK)
+		if (ErrorCode != ERROR_IO_PENDING)
 		{
 			m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
+			delete m_Accept_OLP;
 			Termination();
 
 			return FALSE;
@@ -341,9 +349,8 @@ BOOL GSSocket::Accept2(SOCKET listenSocket)
 		return FALSE;
 	}
 
-	m_OLP_REMAIN_COUNT_ACC.fetch_add(1);
-
 	OVERLAPPED_EX* m_Accept_OLP = new OVERLAPPED_EX;
+	m_OLP_REMAIN_COUNT_ACC.fetch_add(1);
 	m_Accept_OLP->IoType = IO_ACCEPT;
 	m_Accept_OLP->ObjectId = m_ClientId;
 
@@ -358,9 +365,10 @@ BOOL GSSocket::Accept2(SOCKET listenSocket)
 		NULL, 
 		&m_Accept_OLP->Overlapped))
 	{
-		if (WSAGetLastError() != ERROR_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
+		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
 			m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
+			delete m_Accept_OLP;
 			Termination();
 
 			return FALSE;

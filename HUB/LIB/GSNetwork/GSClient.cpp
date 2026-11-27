@@ -44,21 +44,26 @@ boost::shared_ptr<GSPacketUDP>	GSClient::GetUDPSocket()
 
 GSClient::~GSClient(void)
 {
-	if (GetTCPSocket() != NULL)
+	bool canRecycleId = true;
+	if (m_TCPSocket)
 	{
-		int count = GetTCPSocket()->m_OLP_REMAIN_COUNT_ACC + GetTCPSocket()->m_OLP_REMAIN_COUNT_REC + GetTCPSocket()->m_OLP_REMAIN_COUNT_SND;
-		if (count > 0)
+		const int accepts = m_TCPSocket->m_OLP_REMAIN_COUNT_ACC.load();
+		const int reads = m_TCPSocket->m_OLP_REMAIN_COUNT_REC.load();
+		const int writes = m_TCPSocket->m_OLP_REMAIN_COUNT_SND.load();
+		canRecycleId = accepts == 0 && reads == 0 && writes == 0;
+		if (!canRecycleId)
 		{
-			SYSLOG().Write("GetId() %d alert remain overlap event count acc %d recv %d send %d\n", GetId(), GetTCPSocket()->m_OLP_REMAIN_COUNT_ACC.fetch_add(0), GetTCPSocket()->m_OLP_REMAIN_COUNT_REC.fetch_add(0), GetTCPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_add(0));
+			SYSLOG().Write("Client %lu retired with completions pending (accept=%d, read=%d, write=%d)\n",
+				GetId(), accepts, reads, writes);
 		}
-		
 	}
 
 	DebugCount.fetch_sub(1);
 
-	GSServer::GSServer* pServer = (GSServer::GSServer*)m_GSServer;
-
-	pServer->GetClientMgr().InsertRecycleId(GetId());
+	// Completions carry only the client ID. Retire IDs with outstanding I/O.
+	auto* server = static_cast<GSServer::GSServer*>(m_GSServer);
+	if (canRecycleId && server)
+		server->GetClientMgr().InsertRecycleId(GetId());
 
 	if (m_TCPSocket != NULL)
 		m_TCPSocket->Termination();

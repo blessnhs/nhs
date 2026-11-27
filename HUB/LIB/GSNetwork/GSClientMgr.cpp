@@ -384,15 +384,19 @@ BOOL GSClientMgr::Begin(SOCKET ListenSocket,WORD MaxClients,LPVOID pServer)
 			return FALSE;
 		}
 
-		if (!pClient->GetTCPSocket()->Accept(ListenSocket))
+		// AcceptEx can complete before its submitting thread returns.
+		if (!AddClient(pClient))
 		{
 			End();
 			return FALSE;
 		}
 
-		pClient->m_Socket = pClient->GetTCPSocket()->GetSocket();
-
-		AddClient(pClient);
+		if (!pClient->GetTCPSocket()->Accept(ListenSocket))
+		{
+			DelClient(pClient->GetId());
+			End();
+			return FALSE;
+		}
 	}
 
 	return TRUE;
