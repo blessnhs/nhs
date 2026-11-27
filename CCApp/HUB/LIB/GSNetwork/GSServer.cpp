@@ -165,6 +165,19 @@ VOID GSServer::OnConnected(int client_id)
 
 	pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
 
+	// [FIX4] 2026-11-27 AcceptEx로 받은 소켓은 SO_UPDATE_ACCEPT_CONTEXT를 설정해야
+	// getpeername(GetPeerInfo) / shutdown / 일부 setsockopt가 정상 동작한다.
+	// 이전에는 이 설정 없이도 송수신은 됐으므로, 실패해도 접속은 끊지 않고 로그만 남긴다.
+	{
+		GSCLIENT_PTR pListen = GetTcpListen();
+		SOCKET ListenSocket = (pListen != NULL && pListen->GetTCPSocket() != NULL) ? pListen->GetTCPSocket()->GetSocket() : INVALID_SOCKET;
+
+		if (!pClient->GetTCPSocket()->UpdateAcceptContext(ListenSocket))
+		{
+			SYSLOG().Write("SO_UPDATE_ACCEPT_CONTEXT failed client %d error %d\n", client_id, WSAGetLastError());
+		}
+	}
+
 	// [LOCKFIX] completion key는 워커에서 NULL 여부만 확인한다(실제 식별은 OVERLAPPED_EX::ObjectId).
 	// 이전에는 공유 멤버 m_EvtClientId의 주소를 넘겨서 이 멤버를 보호하려고 전역 락이 필요했다.
 
@@ -236,6 +249,16 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 		else if (type == IO_TYPE::IO_WRITE)
 		{
 			pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
+
+			// [FIX1] 2026-11-27 송신 실패로는 종료 처리(OnDisconnected)를 하지 않는다.
+			// 연결이 끊기면 걸려 있던 수신 1개와 진행 중이던 송신 N개가 각각 실패로 돌아오는데,
+			// 이전에는 그때마다 OnDisconnected -> GetClientMgr().NewClient()가 실행되어
+			// 연결 하나가 끊길 때마다 accept 소켓이 N+1개씩 새로 생겼다.
+			// 소켓만 닫으면(소켓 락 아래에서 closesocket) 걸려 있는 WSARecv가 실패로 완료되면서
+			// IO_READ 경로로 종료 처리가 한 번만 실행된다.
+			// (GSPacketTCP::Termination은 수신 버퍼 상태까지 초기화하므로 소켓만 닫는 CloseSocket 사용)
+			pClient->GetTCPSocket()->CloseSocket();
+			return;
 		}
 
 		OnDisconnected(client_id);

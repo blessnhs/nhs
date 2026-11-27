@@ -112,6 +112,20 @@ SOCKET GSSocket::GetSocket(VOID)
 	return m_Socket; 
 }
 
+BOOL GSSocket::UpdateAcceptContext(SOCKET listenSocket)
+{
+	CThreadSync lock(*this);
+	if (!m_Socket || m_Socket == INVALID_SOCKET || !listenSocket || listenSocket == INVALID_SOCKET)
+		return FALSE;
+
+	// optval은 리슨 소켓 핸들의 주소 (Winsock 문서 규약)
+	if (setsockopt(m_Socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+		reinterpret_cast<const char*>(&listenSocket), sizeof(listenSocket)) == SOCKET_ERROR)
+		return FALSE;
+
+	return TRUE;
+}
+
 BOOL GSSocket::RegisterIocp(GSNetwork::GSIocp::GSIocp& iocp, ULONG_PTR completionKey)
 {
 	CThreadSync lock(*this);

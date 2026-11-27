@@ -42,7 +42,7 @@ VOID HubProcess::Process(boost::shared_ptr<XDATA> pBuffer, boost::shared_ptr<GSC
 			//	CLIENT_KICK kick;
 			//	SEND_PROTO_BUFFER(kick, pPair,0)
 
-				SERVER.Close(pPair->GetTCPSocket()->GetSocket());
+				pPair->Close();	// [FIX3] 소켓 락 아래에서 닫기 (이전: SERVER.Close(GetSocket()) -> 핸들 재사용 위험)
 			}
 			else //그냥 전달만 한다.
 				pPair->GetTCPSocket()->RelayPacket(pBuffer->MainId, pBuffer->SubId, pBuffer->IsCompress,(BYTE*)pBuffer->m_Buffer.GetBuffer(), pBuffer->m_Buffer.GetLength(), pBuffer->Reserve2);

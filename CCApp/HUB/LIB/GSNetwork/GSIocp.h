@@ -46,10 +46,19 @@ public:
 	BOOL SubmitWrite(SOCKET socket, std::unique_ptr<_OVERLAPPED_EX> operation, DWORD length, bool addressed);
 
 	VOID				WorkerThread(VOID);
+
+private:
+	// [FIX2] 워커에서 예외가 났을 때 멈춘 연결 정리
+	VOID				CleanupAfterWorkerException(int ObjectId);
+
+public:
 	
 	LONG				ExceptionFilter( LPEXCEPTION_POINTERS pExceptionInfo, LPCSTR szPosition );
 
 
+	// [FIX3] 2026-11-27 사용 금지: 핸들 값만 받아 소켓 락 없이 closesocket 하므로 핸들 재사용 문제가 생긴다.
+	// 대신 GSClient::Close() 또는 GSSocket::CloseSocket()을 쓴다. (기존 코드 호환을 위해 함수는 남겨 둠)
+	[[deprecated("Use GSClient::Close() or GSSocket::CloseSocket() instead (closes under the socket lock).")]]
 	VOID				Close(SOCKET client);
 };
 

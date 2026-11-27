@@ -194,6 +194,11 @@ VOID GSIocp::WorkerThread()
 
 	while (TRUE)
 	{
+		// [FIX2] 2026-11-27 예외 발생 시 어느 연결/어떤 I/O였는지 기록하고, 멈춘 연결을 정리하기 위한 정보
+		int		ExceptionObjectId	= -1;
+		DWORD	ExceptionIoType		= 0;
+		int		CleanupObjectId		= -1;	// 성공 처리(OnRead/OnConnected) 도중일 때만 설정
+
 		try
 		{
 
@@ -216,6 +221,9 @@ VOID GSIocp::WorkerThread()
 			}
 
 			std::unique_ptr<OVERLAPPED_EX> OverlappedEx(reinterpret_cast<OVERLAPPED_EX*>(Overlapped));
+			ExceptionObjectId	= OverlappedEx->ObjectId;
+			ExceptionIoType		= (DWORD)OverlappedEx->IoType;
+
 			if (OverlappedEx->IoType == IO_WRITE)
 			{
 				std::lock_guard<std::mutex> pending(m_PendingWritesLock);
@@ -234,7 +242,9 @@ VOID GSIocp::WorkerThread()
 
 			if (OverlappedEx->IoType == IO_ACCEPT)
 			{
+				CleanupObjectId = OverlappedEx->ObjectId;
 				OnConnected(OverlappedEx->ObjectId);
+				CleanupObjectId = -1;
 				continue;
 			}
 
@@ -247,7 +257,12 @@ VOID GSIocp::WorkerThread()
 						OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
 						break;
 					}
+
+					// OnRead 안에서 예외가 나면 수신 재등록(InitializeReadForIocp)이 실행되지 않아
+					// 수신도 종료 처리도 없는 "멈춘 연결"이 남는다 -> catch에서 정리
+					CleanupObjectId = OverlappedEx->ObjectId;
 					OnRead(OverlappedEx->ObjectId, NumberOfByteTransfered);
+					CleanupObjectId = -1;
 				}
 				break;
 
@@ -257,20 +272,39 @@ VOID GSIocp::WorkerThread()
 			}
 		
 		}
-		catch (...)
-        {
-			/*if(Object != NULL)
-			{
-				OnDisconnected(Object);
-			}*/
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
-			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION DETECTED\n");
+		catch (const std::exception& e)
+		{
+			SYSLOG().Write("IOCP WORKER THREAD EXCEPTION object %d io %lu : %s\n", ExceptionObjectId, ExceptionIoType, e.what());
+			CleanupAfterWorkerException(CleanupObjectId);
 		}
+		catch (...)
+		{
+			// /EHsc 빌드에서는 C++ 예외만 여기로 온다 (접근 위반 같은 SEH 예외는 크래시 핸들러로 감)
+			SYSLOG().Write("IOCP WORKER THREAD UNKNOWN EXCEPTION object %d io %lu\n", ExceptionObjectId, ExceptionIoType);
+			CleanupAfterWorkerException(CleanupObjectId);
+		}
+	}
+}
+
+// [FIX2] 성공 처리(OnRead/OnConnected) 도중 예외가 나서 수신이 다시 걸리지 않은 연결을 강제로 종료 처리한다.
+// 종료 처리 중에 또 예외가 나도 워커 스레드가 죽지 않도록 여기서 한 번 더 감싼다.
+// (OnDisconnected2 처리 중 예외는 이미 종료 처리 경로이므로 다시 호출하지 않는다)
+VOID GSIocp::CleanupAfterWorkerException(int ObjectId)
+{
+	if (ObjectId < 0)
+		return;
+
+	try
+	{
+		OnDisconnected(ObjectId, true);
+	}
+	catch (const std::exception& e)
+	{
+		SYSLOG().Write("IOCP WORKER cleanup exception object %d : %s\n", ObjectId, e.what());
+	}
+	catch (...)
+	{
+		SYSLOG().Write("IOCP WORKER cleanup unknown exception object %d\n", ObjectId);
 	}
 }
 

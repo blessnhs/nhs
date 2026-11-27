@@ -250,7 +250,14 @@ void GSClient::OnEvt(IMessagePtr Arg)
 }
 VOID GSClient::Close()
 {
-	closesocket(GetTCPSocket()->GetSocket());
+	// [FIX3] 2026-11-27 이전: closesocket(GetTCPSocket()->GetSocket())
+	//  -> 소켓 락 없이 핸들을 닫고 m_Socket도 그대로 남겨서, 닫힌 핸들 값이 새 소켓에 재사용되면
+	//     다른 스레드가 엉뚱한 연결로 송수신할 수 있었다. UDP 클라이언트에서 호출하면 NULL 역참조.
+	// 변경: 소켓 락 아래에서 닫고 m_Socket을 NULL로 만든다. 걸려 있던 수신은 실패로 완료되어
+	//       평소처럼 IO_READ 실패 경로로 종료 처리가 한 번 실행된다.
+	boost::shared_ptr<GSPacketTCP> tcp = GetTCPSocket();
+	if (tcp != NULL)
+		tcp->CloseSocket();
 }
 
 

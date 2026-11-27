@@ -24,7 +24,6 @@ GSClientMgr::~GSClientMgr(void)
 
 VOID GSClientMgr::AllCloseSocket()
 {
-	GSServer::GSServer* pServer = (GSServer::GSServer*)m_GSServer;
 	for (auto& kv : m_Clients)
 	{
 		// [LOCKFIX] 값(shared_ptr)은 다른 스레드가 DelClient()에서 동시에 바꿀 수 있으므로 atomic_load로 복사해서 사용
@@ -36,7 +35,8 @@ VOID GSClientMgr::AllCloseSocket()
 
 		if (client->GetConnected())
 		{
-				pServer->Close(client->GetTCPSocket()->GetSocket());
+				// [FIX3] 이전: pServer->Close(client->GetTCPSocket()->GetSocket()) -> 락 없이 핸들을 닫음
+				client->Close();
 		}
 	}
 }

@@ -109,7 +109,8 @@ BOOL			GSSocketTCP::ReadForIocp(BYTE* PacketBuffer, DWORD DataLength,DWORD Remai
 	//m_PacketBuffer 누적 버퍼
 
 
-	CThreadSync Sync(*this);
+	// [LOCKFIX2] 락 제거: 소켓마다 진행 중인 WSARecv는 1개뿐이라 m_ReceiveBuffer는 이 완료를 처리하는 워커만 접근한다.
+	// m_Socket 확인은 정보용(핸들로 I/O를 걸지 않음)이라 락 없이 읽어도 된다.
 
 	if (!m_Socket)
 		return FALSE;
@@ -174,12 +175,6 @@ BOOL			GSSocketTCP::ReadForEventSelect(BYTE *Data, DWORD &DataLength)
 
 }
 
-// [LOCKFIX] BOOL 하나를 읽고 쓰는 데 락은 과함 -> Interlocked
-VOID GSSocketTCP::SetConnected(BOOL bConnected) 
-{
-	CThreadSync Sync(*this);
-	m_bConnected = bConnected;
-}
 // [LOCKFIX] BOOL 하나를 읽고 쓰는 데 락은 과함 -> Interlocked
 VOID GSSocketTCP::SetConnected(BOOL bConnected)
 {

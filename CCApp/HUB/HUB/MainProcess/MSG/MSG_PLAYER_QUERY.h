@@ -853,6 +853,12 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 				locale.assign(http_out[4].begin(), http_out[4].end());
 
 				int nRet = pProcess->ProcedureUserLogin(flatformid, "", authentickey, score, Index, level);
+				if (nRet != 0)
+				{
+					res.set_var_code(DataBaseError);
+					SEND_PROTO_BUFFER(res, pSession, pRequst.FrontSid)
+					return;
+				}
 
 				std::list<std::string> purchaselist = pProcess->GetPurchaseList(Index);
 
