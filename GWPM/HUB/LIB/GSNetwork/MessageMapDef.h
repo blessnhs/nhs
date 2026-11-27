@@ -1,3 +1,5 @@
+#include <memory>
+
 #define DECLARE_MSG_MAP(SESSIONNAME)	\
 typedef void (SESSIONNAME::*NETFUNC)(LPVOID,DWORD,boost::shared_ptr<GSClient>);	\
 	std::map<DWORD,NETFUNC> FuncList;
@@ -33,11 +35,10 @@ typedef void (SESSIONNAME::*NETFUNC)(WORD,LPVOID,DWORD,boost::shared_ptr<GSClien
 	if(SESSION->GetConnected() == true)	\
 	{	\
 	size_t _bufSize__ = NAME.ByteSizeLong();	\
-	BYTE *_arr_send_ = new BYTE[_bufSize__];	\
-	google::protobuf::io::ArrayOutputStream os(_arr_send_, _bufSize__);	\
+	std::unique_ptr<BYTE[]> _arr_send_(new BYTE[_bufSize__]);	\
+	google::protobuf::io::ArrayOutputStream os(_arr_send_.get(), _bufSize__);	\
 	NAME.SerializeToZeroCopyStream(&os);	\
-	SESSION->GetTCPSocket()->WritePacket(NAME.id(), 0, _arr_send_, _bufSize__);	\
-	delete[] _arr_send_ ; \
+	SESSION->GetTCPSocket()->WritePacket(NAME.id(), 0, _arr_send_.get(), _bufSize__);	\
 	}	\
 }\
 
@@ -46,10 +47,9 @@ typedef void (SESSIONNAME::*NETFUNC)(WORD,LPVOID,DWORD,boost::shared_ptr<GSClien
 	if(SESSION->GetConnected() == true)	\
 	{	\
 	size_t _bufSize__ = NAME.ByteSizeLong();	\
-	BYTE *_arr_send_ = new BYTE[_bufSize__];	\
-	google::protobuf::io::ArrayOutputStream os(_arr_send_, _bufSize__);	\
+	std::unique_ptr<BYTE[]> _arr_send_(new BYTE[_bufSize__]);	\
+	google::protobuf::io::ArrayOutputStream os(_arr_send_.get(), _bufSize__);	\
 	NAME.SerializeToZeroCopyStream(&os);	\
-	SESSION->GetTCPSocket()->WritePacket(NAME.id(), SUB_ID, _arr_send_, _bufSize__);	\
-	delete[] _arr_send_ ; \
+	SESSION->GetTCPSocket()->WritePacket(NAME.id(), SUB_ID, _arr_send_.get(), _bufSize__);	\
 	}	\
 }

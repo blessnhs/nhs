@@ -23,7 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{9d0d078b-a64e-4234-9a07-9703c15ad0cd}</ProjectGuid>
     <RootNamespace>HUB</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.22000.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -53,6 +53,16 @@
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64' And '$(MongoCxxLibraryDir)'==''">
+    <MongoCxxLibraryDir>$(ProjectDir)..\LIB\Common\LIB\debug</MongoCxxLibraryDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(MongoCxxLibraryDir)'==''">
+    <MongoCxxLibraryDir>$(ProjectDir)..\LIB\Common\LIB</MongoCxxLibraryDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GSNetworkLibrary)'==''">
+    <GSNetworkLibrary Condition="'$(Configuration)'=='Debug'">../lib/Common/GSCore/GSNetwork_d.lib</GSNetworkLibrary>
+    <GSNetworkLibrary Condition="'$(GSNetworkLibrary)'==''">../lib/Common/GSCore/GSNetwork.lib</GSNetworkLibrary>
+  </PropertyGroup>
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
   <ImportGroup Label="Shared">
@@ -80,10 +90,12 @@
     <LinkIncremental>true</LinkIncremental>
     <TargetName>$(ProjectName)_Debug</TargetName>
     <OutDir>../../bin/debug</OutDir>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;../LIB/Common/boost_1_68_0;../LIB/Common;</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>../../bin/release</OutDir>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;../LIB/Common/boost_1_68_0;../LIB/Common;</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -124,9 +136,10 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\LIB\Common\boost_1_68_0\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>ws2_32.lib;Mswsock.lib;../lib/Common/GSCore/GSNetwork_d.lib;../lib/Common/protobuf/debug/lib/libprotobufd.lib;../lib/Common/MongoDB/MongoDB_d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;Mswsock.lib;$(GSNetworkLibrary);../lib/Common/protobuf/debug/lib/libprotobufd.lib;../lib/Common/MongoDB/MongoDB_d.lib;$(MongoCxxLibraryDir)\mongocxx.lib;$(MongoCxxLibraryDir)\bsoncxx.lib;$(ProjectDir)..\LIB\Common\LIB\debug\cpprest_2_10d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -142,11 +155,12 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
     </ClCompile>
     <Link>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\LIB\Common\boost_1_68_0\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>ws2_32.lib;Mswsock.lib;../lib/Common/GSCore/GSNetwork.lib;../lib/Common/protobuf/lib/libprotobuf.lib;../lib/Common/MongoDB/MongoDB.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;Mswsock.lib;$(GSNetworkLibrary);../lib/Common/protobuf/lib/libprotobuf.lib;../lib/Common/MongoDB/MongoDB.lib;$(MongoCxxLibraryDir)\mongocxx.lib;$(MongoCxxLibraryDir)\bsoncxx.lib;$(ProjectDir)..\LIB\Common\LIB\cpprest_2_10.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
