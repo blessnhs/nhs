@@ -1,6 +1,7 @@
 #include "StdAfx.h"
 #include "GSSocketUDP.h"
 #include <winsock2.h>
+#include <utility>
 
 namespace GSNetwork	{ namespace GSSocket	{	namespace GSSocketUDP	{
 
@@ -51,20 +52,20 @@ BOOL GSSocketUDP::Termination(VOID)
 
 		WaitForSingleObject(m_ReliableUdpThreadHandle, INFINITE);
 
-		CloseHandle(m_ReliableUdpThreadHandle);
+		CloseHandle(std::exchange(m_ReliableUdpThreadHandle, nullptr));
 	}
 
 	if (m_ReliableUdpThreadDestroyEvent)
-		CloseHandle(m_ReliableUdpThreadDestroyEvent);
+		CloseHandle(std::exchange(m_ReliableUdpThreadDestroyEvent, nullptr));
 
 	if (m_ReliableUdpThreadStartupEvent)
-		CloseHandle(m_ReliableUdpThreadStartupEvent);
+		CloseHandle(std::exchange(m_ReliableUdpThreadStartupEvent, nullptr));
 
 	if (m_ReliableUdpThreadWakeUpEvent)
-		CloseHandle(m_ReliableUdpThreadWakeUpEvent);
+		CloseHandle(std::exchange(m_ReliableUdpThreadWakeUpEvent, nullptr));
 
 	if (m_ReliableUdpWriteCompleteEvent)
-		CloseHandle(m_ReliableUdpWriteCompleteEvent);
+		CloseHandle(std::exchange(m_ReliableUdpWriteCompleteEvent, nullptr));
 
 	while( !m_ReliableWriteQueue.empty() ) m_ReliableWriteQueue.pop();
 
@@ -87,7 +88,10 @@ BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 	m_Socket = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
 
 	if (m_Socket == INVALID_SOCKET)
+	{
+		m_Socket = 0;
 		return FALSE;
+	}
 
 	if (::bind(m_Socket, (struct sockaddr*) &RemoteAddressInfo, sizeof(SOCKADDR_IN)) == SOCKET_ERROR)
 	{
@@ -95,6 +99,8 @@ BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 
 		return FALSE;
 	}
+
+	m_BoundPort.store(port, std::memory_order_relaxed);
 
 	// m_ReliableUdpThreadDestroyEvent
 	m_ReliableUdpThreadDestroyEvent = CreateEvent(0, FALSE, FALSE, 0);
@@ -148,117 +154,118 @@ BOOL GSSocketUDP::CreateUdpSocket(USHORT port)
 
 BOOL GSSocketUDP::InitializeReadFromForIocp(VOID)
 {
-	CThreadSync Sync(*this);
-
-	if (!m_Socket)
+	CThreadSync sync(*this);
+	if (!m_Socket || m_Socket == INVALID_SOCKET)
 		return FALSE;
 
-	WSABUF		WsaBuf;
-	DWORD		ReadBytes				= 0;
-	DWORD		ReadFlag				= 0;
-	INT			RemoteAddressInfoSize	= sizeof(m_UdpRemoteInfo);
-
-	WsaBuf.buf			= (CHAR*)m_ReceiveBuffer;
-	WsaBuf.len			= MAX_BUFFER_LENGTH;
-
-	OVERLAPPED_EX* m_Read_OLP = new OVERLAPPED_EX;
-	m_Read_OLP->IoType = IO_READ;
-	m_Read_OLP->ObjectId = m_ClientId;
-	m_OLP_REMAIN_COUNT_REC.fetch_add(1);
-
-	INT		ReturnValue = WSARecvFrom(m_Socket,
-		&WsaBuf,
-		1,
-		&ReadBytes,
-		&ReadFlag,
-		(SOCKADDR*) &m_UdpRemoteInfo,
-		&RemoteAddressInfoSize,
-		&m_Read_OLP->Overlapped,
-		NULL);
-
-	const int error = ReturnValue == SOCKET_ERROR ? WSAGetLastError() : 0;
-	if (ReturnValue == SOCKET_ERROR && error != WSA_IO_PENDING)
+	auto operation = std::unique_ptr<OVERLAPPED_EX>(new (std::nothrow) OVERLAPPED_EX);
+	if (!operation)
 	{
-		SYSLOG().Write("[IOCP/UDP read] Submission failed client=%d wsa=%d\n", m_ClientId, error);
-		m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
-		delete m_Read_OLP;
-		Termination();
-
+		m_ReadPostFailed.fetch_add(1, std::memory_order_relaxed);
+		return FALSE;
+	}
+	operation->IoType = IO_UDP_READ;
+	operation->ObjectId = m_ClientId;
+	WSABUF buffer{MAX_BUFFER_LENGTH, reinterpret_cast<char*>(m_ReceiveBuffer)};
+	auto* pending = operation.release();
+	m_OLP_REMAIN_COUNT_REC.fetch_add(1);
+	const int result = WSARecvFrom(m_Socket, &buffer, 1, nullptr, &pending->ReceiveFlags,
+		reinterpret_cast<SOCKADDR*>(&m_UdpRemoteInfo), &pending->ReceiveAddressLength,
+		&pending->Overlapped, nullptr);
+	const int error = result == SOCKET_ERROR ? WSAGetLastError() : 0;
+	if (result == SOCKET_ERROR && error != WSA_IO_PENDING)
+	{
+		operation.reset(pending);
+		{
+			std::lock_guard<std::mutex> lock(m_ReceiveCompletionLock);
+			m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
+			m_ReceivesDrained.notify_all();
+		}
+		const auto failures = m_ReadPostFailed.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (failures <= 4 || failures % 1024 == 0)
+			SYSLOG().Write("[UDP/receive-post-failed] Port=%u ClientId=%d Error=%d Total=%llu\n",
+				static_cast<unsigned>(m_BoundPort.load()), m_ClientId, error, failures);
 		return FALSE;
 	}
 
+	m_ReadPosted.fetch_add(1, std::memory_order_relaxed);
 	return TRUE;
 }
 
-BOOL			GSSocketUDP::ReadFromForEventSelect(LPSTR remoteAddress, USHORT &remotePort, BYTE *data, DWORD &dataLength)
+void GSSocketUDP::CompleteIocpRead()
 {
-	CThreadSync Sync(*this);
+	m_LastReadCompleted.store(GetTickCount64(), std::memory_order_relaxed);
+	m_ReadCompleted.fetch_add(1, std::memory_order_relaxed);
+	std::lock_guard<std::mutex> lock(m_ReceiveCompletionLock);
+	if (m_OLP_REMAIN_COUNT_REC.fetch_sub(1) == 1)
+		m_ReceivesDrained.notify_all();
+}
 
-	if (!m_Socket)
-		return FALSE;
+void GSSocketUDP::WaitForIocpReads()
+{
+	std::unique_lock<std::mutex> lock(m_ReceiveCompletionLock);
+	m_ReceivesDrained.wait(lock, [this] { return m_OLP_REMAIN_COUNT_REC.load() == 0; });
+}
 
-	if (!data)
-		return FALSE;
+void GSSocketUDP::TryRestoreIocpRead()
+{
+	if (m_OLP_REMAIN_COUNT_REC.load() != 0 || m_ReadPosted.load() == 0)
+		return;
 
-	if (!m_Socket)
-		return FALSE;
+	CThreadSync sync(*this);
+	if (m_OLP_REMAIN_COUNT_REC.load() == 0 && InitializeReadFromForIocp())
+		m_ReadRestarts.fetch_add(1, std::memory_order_relaxed);
+}
 
-	WSABUF		WsaBuf;
-	DWORD		ReadBytes				= 0;
-	DWORD		ReadFlag				= 0;
-	INT			RemoteAddressInfoSize	= sizeof(m_UdpRemoteInfo);
-
-	WsaBuf.buf			= (CHAR*)m_ReceiveBuffer;
-	WsaBuf.len			= MAX_BUFFER_LENGTH;
-	
-	
-	OVERLAPPED_EX* m_Read_OLP = new OVERLAPPED_EX;
-	m_Read_OLP->IoType = IO_READ;
-	m_Read_OLP->ObjectId = m_ClientId;	
-
-
-	m_OLP_REMAIN_COUNT_REC.fetch_add(1);
-
-	INT		ReturnValue = WSARecvFrom(m_Socket,
-		&WsaBuf,
-		1,
-		&ReadBytes,
-		&ReadFlag,
-		(SOCKADDR*) &m_UdpRemoteInfo,
-		&RemoteAddressInfoSize,
-		&m_Read_OLP->Overlapped,
-		NULL);
-
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING && WSAGetLastError() != WSAEWOULDBLOCK)
+void GSSocketUDP::RecordHandlerTime(ULONGLONG durationMs)
+{
+	if (durationMs >= 5)
+		m_HandlersOver5Ms.fetch_add(1, std::memory_order_relaxed);
+	auto peak = m_MaxHandlerMs.load(std::memory_order_relaxed);
+	while (durationMs > peak &&
+		!m_MaxHandlerMs.compare_exchange_weak(peak, durationMs, std::memory_order_relaxed))
 	{
-		m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
-		Termination();
-
-		return FALSE;
 	}
+}
 
-	memcpy(data, m_ReceiveBuffer, ReadBytes);
-	dataLength	= ReadBytes;
+void GSSocketUDP::LogReceiveStats()
+{
+	const auto lastCompleted = m_LastReadCompleted.load(std::memory_order_relaxed);
+	const auto age = lastCompleted ? GetTickCount64() - lastCompleted : 0;
+	SYSLOG().Write("[UDP/port] Port=%u ClientId=%d ReadPending=%d Posted=%llu Completed=%llu"
+		" PostFailed=%llu Restarts=%llu ReceiveErrors=%llu InvalidDatagrams=%llu"
+		" LastCompletionAgeMs=%llu SendPending=%d HandlersAtLeast5Ms=%llu MaxHandlerMs=%llu\n",
+		static_cast<unsigned>(m_BoundPort.load()), m_ClientId, m_OLP_REMAIN_COUNT_REC.load(),
+		m_ReadPosted.load(), m_ReadCompleted.load(), m_ReadPostFailed.load(), m_ReadRestarts.load(), ReceiveErrors.load(),
+		InvalidDatagrams.load(), age, m_OLP_REMAIN_COUNT_SND.load(), m_HandlersOver5Ms.load(), m_MaxHandlerMs.load());
+}
 
-	//memcpy(remoteAddress, inet_ntoa(m_UdpRemoteInfo.sin_addr), 32);
+BOOL GSSocketUDP::ReadFromForEventSelect(LPSTR remoteAddress, USHORT& remotePort, BYTE* data, DWORD& dataLength)
+{
+	CThreadSync sync(*this);
+	dataLength = 0;
+	if (!m_Socket || m_Socket == INVALID_SOCKET || !remoteAddress || !data)
+		return FALSE;
+
+	int addressLength = sizeof(m_UdpRemoteInfo);
+	const int bytes = recvfrom(m_Socket, reinterpret_cast<char*>(data), MAX_BUFFER_LENGTH, 0,
+		reinterpret_cast<SOCKADDR*>(&m_UdpRemoteInfo), &addressLength);
+	if (bytes <= 0)
+		return FALSE;
+
 	strcpy(remoteAddress, inet_ntoa(m_UdpRemoteInfo.sin_addr));
-	remotePort	= ntohs(m_UdpRemoteInfo.sin_port);
-
-	USHORT Ack = 0;
-	memcpy(&Ack, m_ReceiveBuffer, sizeof(USHORT));
-
-	if (Ack == 9999)
+	remotePort = ntohs(m_UdpRemoteInfo.sin_port);
+	USHORT ack = 0;
+	if (bytes >= sizeof(ack))
+		memcpy(&ack, data, sizeof(ack));
+	if (bytes == sizeof(ack) && ack == 9999)
 	{
 		SetEvent(m_ReliableUdpWriteCompleteEvent);
-
 		return FALSE;
 	}
-	else
-	{
-		Ack = 9999;
-		WriteTo2(remoteAddress, remotePort, (BYTE*) &Ack, sizeof(USHORT));
-	}
-
+	ack = 9999;
+	WriteTo2(remoteAddress, remotePort, reinterpret_cast<BYTE*>(&ack), sizeof(ack));
+	dataLength = static_cast<DWORD>(bytes);
 	return TRUE;
 }
 
@@ -278,7 +285,7 @@ BOOL	GSSocketUDP::ReadFromForIocp(LPSTR& remoteAddress, USHORT &remotePort, BYTE
 	if (!data || dataLength <= 0)
 		return FALSE;
 
-	if(dataLength >= MAX_BUFFER_LENGTH)
+	if (dataLength > MAX_BUFFER_LENGTH)
 		return FALSE;
 
 	memcpy(data, m_ReceiveBuffer, dataLength);
@@ -372,7 +379,7 @@ BOOL			GSSocketUDP::WriteTo2(LPSTR remoteAddress, USHORT remotePort, BYTE *data,
 	destination.sin_addr.S_un.S_addr = inet_addr(remoteAddress);
 	destination.sin_port = htons(remotePort);
 
-	auto copy = std::make_unique<BYTE[]>(dataLength);
+	std::unique_ptr<BYTE[]> copy(new BYTE[dataLength]);
 	memcpy(copy.get(), data, dataLength);
 	return SubmitWrite(std::move(copy), dataLength, &destination);
 }

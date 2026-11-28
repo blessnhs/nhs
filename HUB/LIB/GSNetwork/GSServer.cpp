@@ -116,13 +116,17 @@ VOID GSServer::OnRead(int client_id, DWORD dataLength)
 	}
 	else if (pClient->GetCreateType() == UDP)
 	{
-		pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
-		pClient->OnRecv(dataLength, pClient);
-
-		if (!pClient->InitializeReadForIocp())
+		auto socket = pClient->GetUDPSocket();
+		try
 		{
-			SYSLOG().Write("line %d file %s InitializeReadForIocp Fail\n", __LINE__, __FILE__);
+			pClient->OnRecv(dataLength, pClient);
 		}
+		catch (...)
+		{
+			socket->CompleteIocpRead();
+			throw;
+		}
+		socket->CompleteIocpRead();
 	}
 	else
 	{
@@ -268,8 +272,13 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 	}
 	else if (pClient->GetCreateType() == UDP)
 	{
-		if (type == IO_TYPE::IO_READ)
-			pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
+		if (type == IO_TYPE::IO_UDP_READ)
+		{
+			auto socket = pClient->GetUDPSocket();
+			socket->ReceiveErrors.fetch_add(1, std::memory_order_relaxed);
+			socket->InitializeReadFromForIocp();
+			socket->CompleteIocpRead();
+		}
 		else if (type == IO_TYPE::IO_WRITE)
 			pClient->GetUDPSocket()->m_OLP_REMAIN_COUNT_SND.fetch_sub(1);
 	}
@@ -292,6 +301,17 @@ GSClientMgr::GSClientMgr&	GSServer::GetClientMgr()
 
 VOID GSServer::End(VOID)
 {
+	if (IsWorkerThread())
+	{
+		SYSLOG().Write("IOCP shutdown must be requested outside its worker thread\n");
+		return;
+	}
+
+	for (const auto& entry : m_UDPListenPorts)
+		entry.second->GetUDPSocket()->CloseSocket();
+	for (const auto& entry : m_UDPListenPorts)
+		entry.second->GetUDPSocket()->WaitForIocpReads();
+
 	if (!GSIocp::Termination())
 	{
 		SYSLOG().Write("IOCP shutdown must be requested outside its worker thread\n");
@@ -306,6 +326,8 @@ VOID GSServer::End(VOID)
 
 	}
 
+	for (const auto& entry : m_UDPListenPorts)
+		m_ClientMgr.DelClient(entry.first);
 	m_UDPListenPorts.clear();
 
 	m_FreePorts.clear();
@@ -409,12 +431,16 @@ BOOL GSServer::BeginUDP()
 			return FALSE;
 		}
 
-		UDPListenPort->GetUDPSocket()->InitializeReadFromForIocp();
-
-		m_FreePorts.push(UDPListenPort->GetUDPSocket());
 		m_UDPListenPorts[UDPListenPort->GetId()] = UDPListenPort;
-
-		m_ClientMgr.AddClient(UDPListenPort);
+		if (!m_ClientMgr.AddClient(UDPListenPort) ||
+			!UDPListenPort->GetUDPSocket()->InitializeReadFromForIocp())
+		{
+			SYSLOG().Write("[UDP/startup] First receive failed Port=%u\n",
+				static_cast<unsigned>(m_Arguments.m_UdpPorts[i]));
+			GSServer::End();
+			return FALSE;
+		}
+		m_FreePorts.push(UDPListenPort->GetUDPSocket());
 	}
 
 	return TRUE;

@@ -75,7 +75,11 @@ VOID GSClientMgr::CheckAliveTime()
 		auto* socket = tcp ? static_cast<GSNetwork::GSSocket::GSSocket*>(tcp)
 			: static_cast<GSNetwork::GSSocket::GSSocket*>(udp);
 		if (udp)
+		{
 			++udpSockets;
+			udp->LogReceiveStats();
+			udp->TryRestoreIocpRead();
+		}
 		if (socket)
 		{
 			const int accepts = socket->m_OLP_REMAIN_COUNT_ACC.load(std::memory_order_relaxed);

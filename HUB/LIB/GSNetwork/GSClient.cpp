@@ -1,4 +1,5 @@
 #include "StdAfx.h"
+#include <chrono>
 #include "GSClient.h"
 #include "GSMainProcess.h"
 #include "MSG_PLAYER_CLOSE.h"
@@ -408,7 +409,10 @@ VOID GSClient::ProcPacket(boost::shared_ptr<GSClient> pClient)
 			auto handler = GetProcess();
 			if (!handler)
 			{
-				SYSLOG().Write("set process is null\n");
+				static std::atomic<unsigned long long> missingHandler{0};
+				const auto total = missingHandler.fetch_add(1, std::memory_order_relaxed) + 1;
+				if (total <= 4 || total % 1024 == 0)
+					SYSLOG().Write("[UDP/no-handler] ClientId=%lu EchoPackets=%llu\n", GetId(), total);
 
 				//echo
 				GetUDPSocket()->WriteTo2(const_cast<char *>(pBuffer->LemoteAddress.c_str()), pBuffer->RemotePort, pBuffer->m_Buffer.GetBuffer(), pBuffer->Length);
@@ -504,12 +508,26 @@ void GSClient::OnRecv(DWORD Length, boost::shared_ptr<GSClient> client)
 	}
 	else if (client->GetCreateType() == UDP)
 	{
-		GetUDPSocket()->MakePacket(Length);
+		try
+		{
+			GetUDPSocket()->MakePacket(Length);
+		}
+		catch (...)
+		{
+			GetUDPSocket()->InitializeReadFromForIocp();
+			throw;
+		}
+
+		// The parser has copied the datagram out of the receive buffer.
+		GetUDPSocket()->InitializeReadFromForIocp();
 
 		//udp의 경우 속도가 중요하고 connectionless이기 때문에 로직 스레드로 던지지 않고 그냥 처리해본다.
 		//TakeMsg(client);
 
+		const auto handlerStart = std::chrono::steady_clock::now();
 		client->ProcPacket(client);
+		const auto elapsed = std::chrono::steady_clock::now() - handlerStart;
+		GetUDPSocket()->RecordHandlerTime(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 	}
 }
 

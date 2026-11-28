@@ -25,6 +25,8 @@ public:
 	BOOL	ResetUdp(VOID);
 	BOOL	GetPacket(LPSTR remoteAddress, USHORT remotePort, WORD &MainProtocol, WORD &SubProtocol,BYTE *packet, DWORD &dataLength);
 
+private:
+	BOOL ReadDatagramHeader(WORD& mainProtocol, WORD& subProtocol, DWORD& payloadLength);
 };
 
 }	}	}	}

@@ -87,6 +87,11 @@ size_t GSIocp::GetPendingWriteCount()
 	return m_PendingWrites.size();
 }
 
+bool GSIocp::IsWorkerThread() const
+{
+	return currentIocpWorker == this;
+}
+
 BOOL GSIocp::Termination(VOID)
 {
 	// The owning thread must stop the port after the callback returns.
@@ -259,6 +264,7 @@ VOID GSIocp::WorkerThread()
 			{
 				static std::atomic<unsigned long long> acceptFailures{0};
 				static std::atomic<unsigned long long> readFailures{0};
+				static std::atomic<unsigned long long> udpReadFailures{0};
 				static std::atomic<unsigned long long> writeFailures{0};
 				static std::atomic<unsigned long long> otherFailures{0};
 				auto* failures = &otherFailures;
@@ -267,6 +273,7 @@ VOID GSIocp::WorkerThread()
 				{
 				case IO_ACCEPT: failures = &acceptFailures; operation = "accept"; break;
 				case IO_READ: failures = &readFailures; operation = "read"; break;
+				case IO_UDP_READ: failures = &udpReadFailures; operation = "udp-read"; break;
 				case IO_WRITE: failures = &writeFailures; operation = "write"; break;
 				}
 				const auto total = failures->fetch_add(1, std::memory_order_relaxed) + 1;
@@ -301,6 +308,10 @@ VOID GSIocp::WorkerThread()
 					OnRead(OverlappedEx->ObjectId, NumberOfByteTransfered);
 					CleanupObjectId = -1;
 				}
+				break;
+
+			case IO_UDP_READ:
+				OnRead(OverlappedEx->ObjectId, NumberOfByteTransfered);
 				break;
 
 			case IO_WRITE:

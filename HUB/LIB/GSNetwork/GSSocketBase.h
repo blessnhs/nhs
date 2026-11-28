@@ -9,7 +9,8 @@ enum IO_TYPE
 {
 	IO_ACCEPT,
 	IO_READ,
-	IO_WRITE
+	IO_WRITE,
+	IO_UDP_READ
 };
 
 typedef struct _OVERLAPPED_EX
@@ -34,6 +35,8 @@ typedef struct _OVERLAPPED_EX
 	int			ObjectId;
 	BYTE*       SendBuffer;
 	SOCKADDR_IN SendAddress{};
+	int ReceiveAddressLength = sizeof(SOCKADDR_IN);
+	DWORD ReceiveFlags = 0;
 } OVERLAPPED_EX;
 static_assert(std::is_standard_layout<OVERLAPPED_EX>::value, "IOCP requires a stable OVERLAPPED prefix");
 

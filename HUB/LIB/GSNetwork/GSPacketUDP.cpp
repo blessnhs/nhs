@@ -3,6 +3,8 @@
 #include "GSCrypt.h"
 #include "GSPacket.h"
 
+namespace { constexpr DWORD UdpHeaderSize = 3 * sizeof(WORD) + sizeof(DWORD); }
+
 namespace GSNetwork	{ namespace GSSocket	{	namespace GSPacket	{	namespace GSPacketUDP	{
 
 	typedef GSNetwork::GSCrypt::GSCrypt	GSCrypt;
@@ -42,10 +44,10 @@ BOOL	GSPacketUDP::ReadFromPacketForIocp(LPSTR& remoteAddress, USHORT &remotePort
 {
 	CThreadSync Sync(*this);
 
-	if (!GSSocketUDP::ReadFromForIocp(remoteAddress, remotePort, m_PacketBuffer + m_RemainLength, readLength))
+	if (!GSSocketUDP::ReadFromForIocp(remoteAddress, remotePort, m_PacketBuffer, readLength))
 		return FALSE;
 
-	m_RemainLength	+= readLength;
+	m_RemainLength = readLength;
 
 	//return getPacket(remoteAddress, remotePort, protocol, packet, packetLength);
 	return TRUE;
@@ -58,10 +60,10 @@ BOOL	GSPacketUDP::ReadFromPacketForEventSelect(LPSTR remoteAddress, USHORT &remo
 
 	DWORD ReadLength = 0;
 
-	if (!GSSocketUDP::ReadFromForEventSelect(remoteAddress, remotePort, m_PacketBuffer + m_RemainLength, ReadLength))
+	if (!GSSocketUDP::ReadFromForEventSelect(remoteAddress, remotePort, m_PacketBuffer, ReadLength))
 		return FALSE;
 
-	m_RemainLength	+= ReadLength;
+	m_RemainLength = ReadLength;
 
 	//return getPacket(remoteAddress, remotePort, protocol, packet, packetLength);
 	return TRUE;
@@ -70,30 +72,31 @@ BOOL	GSPacketUDP::ReadFromPacketForEventSelect(LPSTR remoteAddress, USHORT &remo
 
 VOID	GSPacketUDP::MakePacket(DWORD ReadLength)
 {
-	WORD  MainProtocol = 0,SubProtocol = 0;
-	DWORD dwPacketLength = 0;
-	BYTE Packet[MAX_BUFFER_LENGTH] = {0,};
-
-	LPSTR	RemoteAddress="";
-	USHORT	RemotePort = 0;
-	
-	if (ReadFromPacketForIocp(RemoteAddress,RemotePort, ReadLength))
+	CThreadSync sync(*this);
+	LPSTR remoteAddress = nullptr;
+	USHORT remotePort = 0;
+	if (!ReadFromPacketForIocp(remoteAddress, remotePort, ReadLength))
 	{
-		while (GetPacket(RemoteAddress,RemotePort,MainProtocol,SubProtocol, Packet, ReadLength))
-		{
-			boost::shared_ptr<XDATA> pBuffer = GetGSBufferPool().alloc();
-			pBuffer->m_Buffer.SetBuffer(Packet, ReadLength);
-			pBuffer->MainId = MainProtocol;
-			pBuffer->Length = ReadLength;
-			pBuffer->LemoteAddress = RemoteAddress;
-			pBuffer->RemotePort = RemotePort;
-			m_PacketList.push(pBuffer);
-
-			MakeMsg(MainProtocol,SubProtocol,dwPacketLength);
-		}
+		InvalidDatagrams.fetch_add(1, std::memory_order_relaxed);
+		return;
 	}
-}
 
+	WORD mainProtocol = 0;
+	WORD subProtocol = 0;
+	DWORD length = 0;
+	if (!ReadDatagramHeader(mainProtocol, subProtocol, length))
+		return;
+
+	auto packet = GetGSBufferPool().alloc();
+	packet->m_Buffer.SetBuffer(m_PacketBuffer + UdpHeaderSize, length);
+	packet->MainId = mainProtocol;
+	packet->SubId = subProtocol;
+	packet->Length = length;
+	packet->LemoteAddress = remoteAddress;
+	packet->RemotePort = remotePort;
+	m_PacketList.push(packet);
+	MakeMsg(mainProtocol, subProtocol, length);
+}
 
 BOOL	GSPacketUDP::WriteToPacket(LPCSTR remoteAddress, USHORT remotePort, WORD MainProtocol, WORD SubProtocol,const BYTE *packet, WORD packetLength)
 {
@@ -102,20 +105,14 @@ BOOL	GSPacketUDP::WriteToPacket(LPCSTR remoteAddress, USHORT remotePort, WORD Ma
 	if (!packet)
 		return FALSE;
 
-	WORD PacketLength = sizeof(WORD)  + 
-		sizeof(WORD)                  + 
-		sizeof(WORD)                  + 
-		sizeof(DWORD)                 + 
-		packetLength;
-
-	if (PacketLength >= MAX_BUFFER_LENGTH)
-	{
+	const DWORD wireLength = UdpHeaderSize + packetLength;
+	if (wireLength > MAX_BUFFER_LENGTH || wireLength > MAXWORD)
 		return FALSE;
-	}
+	const WORD PacketLength = static_cast<WORD>(wireLength);
 
 	m_CurrentPacketNumber++;
 
-	BYTE TempBuffer[MAX_BUFFER_LENGTH] = {0,};
+	BYTE TempBuffer[MAX_BUFFER_LENGTH];
 	
 	memcpy(TempBuffer, &PacketLength, sizeof(WORD));
 	
@@ -167,21 +164,29 @@ BOOL	GSPacketUDP::ResetUdp(VOID)
 
 BOOL	GSPacketUDP::GetPacket(LPSTR remoteAddress, USHORT remotePort,WORD &MainProtocol, WORD &SubProtocol,BYTE *packet, DWORD &dataLength)
 {
-	CThreadSync Sync(*this);
-
-	if (!packet)
+	CThreadSync sync(*this);
+	if (!packet || !ReadDatagramHeader(MainProtocol, SubProtocol, dataLength))
 		return FALSE;
+	memcpy(packet, m_PacketBuffer + UdpHeaderSize, dataLength);
+	return TRUE;
+}
 
-	if (m_RemainLength < sizeof(WORD) + sizeof(WORD) + sizeof(WORD) + sizeof(DWORD))
-		return FALSE;
-
-	memcpy(&MainProtocol, m_PacketBuffer + sizeof(WORD), sizeof(WORD));
-		
-	dataLength = m_RemainLength - sizeof(WORD) - sizeof(WORD) - sizeof(WORD) - sizeof(DWORD);
-
-	memcpy(packet, m_PacketBuffer+ sizeof(WORD) + sizeof(WORD) + sizeof(WORD) + sizeof(DWORD), dataLength - sizeof(WORD) + sizeof(WORD) + sizeof(WORD) + sizeof(DWORD));
+BOOL GSPacketUDP::ReadDatagramHeader(WORD& MainProtocol, WORD& SubProtocol, DWORD& dataLength)
+{
+	const DWORD received = m_RemainLength;
 	m_RemainLength = 0;
+	WORD declared = 0;
+	if (received >= UdpHeaderSize)
+		memcpy(&declared, m_PacketBuffer, sizeof(declared));
+	if (received < UdpHeaderSize || declared != received)
+	{
+		InvalidDatagrams.fetch_add(1, std::memory_order_relaxed);
+		return FALSE;
+	}
 
+	memcpy(&MainProtocol, m_PacketBuffer + sizeof(WORD), sizeof(MainProtocol));
+	memcpy(&SubProtocol, m_PacketBuffer + 2 * sizeof(WORD), sizeof(SubProtocol));
+	dataLength = received - UdpHeaderSize;
 	return TRUE;
 }
 

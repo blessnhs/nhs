@@ -32,6 +32,7 @@ private:
 	std::map<OVERLAPPED*, SOCKET> m_PendingWrites;
 
 protected:
+	bool IsWorkerThread() const;
 	virtual VOID		OnRead(int client_id, DWORD dataLength)	= 0;
 	virtual VOID		OnWrote(int client_id, DWORD dataLength)	= 0;
 	virtual VOID		OnConnected(int client_id)				= 0;
