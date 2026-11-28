@@ -13,8 +13,10 @@ enum IO_TYPE
 	IO_UDP_READ
 };
 
+/// @brief IOCP가 사용하는 OVERLAPPED와 작업 종류, 클라이언트 ID 및 완료까지 유지되는 I/O 데이터를 보관합니다.
 typedef struct _OVERLAPPED_EX
 {
+	/// @brief OVERLAPPED를 초기화하고 송신 버퍼 소유권을 비워 둡니다.
 	_OVERLAPPED_EX()
 	{
 		memset(&Overlapped, 0, sizeof(OVERLAPPED));
@@ -22,6 +24,7 @@ typedef struct _OVERLAPPED_EX
 		SendBuffer = nullptr;
 	}
 
+	/// @brief 컨텍스트에 연결된 소유 송신 버퍼를 해제합니다.
 	~_OVERLAPPED_EX()
 	{
 		delete[] SendBuffer;
@@ -40,10 +43,13 @@ typedef struct _OVERLAPPED_EX
 } OVERLAPPED_EX;
 static_assert(std::is_standard_layout<OVERLAPPED_EX>::value, "IOCP requires a stable OVERLAPPED prefix");
 
+/// @brief 레거시 송신 큐에서 사용하는 소유 버퍼와 송신 메타데이터입니다.
 class WRITE_PACKET_INFO
 {
 public:
+	/// @brief 레거시 송신 버퍼와 길이, 시각 정보를 초기화합니다.
 	WRITE_PACKET_INFO() { Data = NULL;  DataLength = 0;  Time = 0; }
+	/// @brief 레거시 송신 큐 항목이 소유한 버퍼를 해제합니다.
 	virtual ~WRITE_PACKET_INFO() 
 	{
 		if (Data != NULL)
@@ -65,10 +71,13 @@ public:
 
 };
 
+/// @brief 클라이언트 모듈에서 사용하는 수신 버퍼와 패킷 메타데이터입니다.
 class READ_PACKET_INFO
 {
 public:
+	/// @brief 수신 큐 항목을 생성합니다.
 	READ_PACKET_INFO(){}
+	/// @brief 수신 큐 항목을 파괴합니다.
 	virtual ~READ_PACKET_INFO() {}
 
 	BYTE	Data[MAX_BUFFER_LENGTH];
