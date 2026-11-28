@@ -154,6 +154,7 @@ VOID GSServer::OnWrote(int client_id, DWORD dataLength)
 
 VOID GSServer::OnConnected(int client_id)
 {
+	m_ClientMgr.CompleteAccept();
 //이락은 필수 안그럼 종료되었는데 남아 있고 꼬인다.
 	// [LOCKFIX] 이전: CThreadSync Sync(this) -> 서버 전체(모든 접속/종료 처리)를 직렬화하는 전역 락.
 	// 꼬임을 막아야 하는 대상은 "같은 클라이언트의 접속 처리와 종료 처리"이므로 해당 클라이언트 객체만 잠근다.
@@ -174,12 +175,18 @@ VOID GSServer::OnConnected(int client_id)
 	// getpeername(GetPeerInfo) / shutdown / 일부 setsockopt가 정상 동작한다.
 	// 이전에는 이 설정 없이도 송수신은 됐으므로, 실패해도 접속은 끊지 않고 로그만 남긴다.
 	{
-		GSCLIENT_PTR pListen = GetTcpListen();
-		SOCKET ListenSocket = (pListen != NULL && pListen->GetTCPSocket() != NULL) ? pListen->GetTCPSocket()->GetSocket() : INVALID_SOCKET;
+		if (!m_ClientMgr.IsAccepting())
+		{
+			m_ClientMgr.DelClient(client_id);
+			return;
+		}
 
-		if (!pClient->GetTCPSocket()->UpdateAcceptContext(ListenSocket))
+		const auto& listener = pClient->GetAcceptListener();
+		if (!listener || !pClient->GetTCPSocket()->UpdateAcceptContext(*listener))
 		{
 			SYSLOG().Write("SO_UPDATE_ACCEPT_CONTEXT failed client %d error %d\n", client_id, WSAGetLastError());
+			OnDisconnected(client_id, true);
+			return;
 		}
 	}
 
@@ -219,7 +226,9 @@ VOID GSServer::OnDisconnected(int client_id, bool isForce)
 		return;
 	}
 
-	GetClientMgr().NewClient();
+	if (pClient->ClaimAcceptReplacement() && m_ClientMgr.IsAccepting() &&
+		!m_ClientMgr.NewClient(pClient->GetAcceptListener(), 1) && m_ClientMgr.IsAccepting())
+		SYSLOG().Write("[TCP/accept] Failed to replenish listener slot client=%d\n", client_id);
 
 
 	pClient->OnDisconnect(pClient, isForce);
@@ -228,6 +237,8 @@ VOID GSServer::OnDisconnected(int client_id, bool isForce)
 
 VOID GSServer::OnDisconnected2(int client_id, int type)
 {
+	if (type == IO_ACCEPT)
+		m_ClientMgr.CompleteAccept();
 //이락은 필수
 
 	// [LOCKFIX] 전역 락 -> 해당 클라이언트 객체 락 (OnConnected와 같은 이유)
@@ -246,6 +257,11 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 		if (type == IO_TYPE::IO_ACCEPT)
 		{
 			pClient->GetTCPSocket()->m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
+			if (!m_ClientMgr.IsAccepting())
+			{
+				m_ClientMgr.DelClient(client_id);
+				return;
+			}
 		}
 		else if (type == IO_TYPE::IO_READ)
 		{
@@ -286,7 +302,7 @@ VOID GSServer::OnDisconnected2(int client_id, int type)
 
 GSCLIENT_PTR GSServer::GetTcpListen()
 {
-	return m_pTCPListen;
+	return boost::atomic_load(&m_PrimaryTcpListener);
 }
 
 concurrency::concurrent_unordered_map<DWORD, GSCLIENT_PTR>&	GSServer::GetUDPListenPorts()
@@ -307,6 +323,11 @@ VOID GSServer::End(VOID)
 		return;
 	}
 
+	m_ClientMgr.StopAccepting();
+	for (const auto& listener : m_TcpListeners)
+		listener->GetTCPSocket()->CloseSocket();
+	m_ClientMgr.WaitForAccepts();
+
 	for (const auto& entry : m_UDPListenPorts)
 		entry.second->GetUDPSocket()->CloseSocket();
 	for (const auto& entry : m_UDPListenPorts)
@@ -320,11 +341,8 @@ VOID GSServer::End(VOID)
 
 	m_ClientMgr.End();
 
-	if (m_pTCPListen)
-	{
-		m_pTCPListen->GetTCPSocket()->Termination();
-
-	}
+	boost::atomic_store(&m_PrimaryTcpListener, GSCLIENT_PTR());
+	m_TcpListeners.clear();
 
 	for (const auto& entry : m_UDPListenPorts)
 		m_ClientMgr.DelClient(entry.first);
@@ -336,55 +354,62 @@ VOID GSServer::End(VOID)
 
 BOOL GSServer::BeginTCP()
 {
-	if (!GSIocp::Initialize()) return FALSE;
-
-	m_pTCPListen = boost::make_shared<GSClient>();
-	m_pTCPListen->Create(TCP);
-
-	if (!m_pTCPListen->GetTCPSocket()->Initialize())
+	auto endpoints = m_Arguments.m_TcpBindEndpoints;
+	if (endpoints.empty())
+		endpoints.push_back({"0.0.0.0", m_Arguments.m_BindPort});
+	if (endpoints.size() > m_Arguments.m_MaxClient)
 	{
-		SYSLOG().Write("[GSNetwork/startup] TCP packet socket setup failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
-		GSServer::End();
-
+		SYSLOG().Write("[TCP/startup] MAXUSER must cover all TCP listeners\n");
 		return FALSE;
 	}
-
-	if (!m_pTCPListen->GetTCPSocket()->CreateTcpSocket())
-	{
-		SYSLOG().Write("[GSNetwork/startup] TCP socket creation failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
-		GSServer::End();
-
+	if (!GSIocp::Initialize())
 		return FALSE;
-	}
 
-	if (!m_pTCPListen->GetTCPSocket()->Listen((WORD)m_Arguments.m_BindPort, /*m_Arguments.m_MaxClient*/SOMAXCONN))
+	try
 	{
-		SYSLOG().Write("[GSNetwork/startup] TCP bind/listen failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
-		GSServer::End();
+		m_TcpListeners.reserve(endpoints.size());
+		for (const auto& endpoint : endpoints)
+		{
+			auto listener = boost::make_shared<GSClient>();
+			listener->Create(TCP);
+			auto socket = listener->GetTCPSocket();
+			if (!socket->Initialize() || !socket->CreateTcpSocket() ||
+				!socket->Listen(endpoint.Address.c_str(), endpoint.Port, SOMAXCONN) ||
+				!socket->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(socket.get())))
+			{
+				const int error = WSAGetLastError();
+				SYSLOG().Write("[TCP/startup] Listener setup failed address=%s port=%u wsa=%d\n",
+					endpoint.Address.c_str(), static_cast<unsigned>(endpoint.Port), error);
+				End();
+				return FALSE;
+			}
+			m_TcpListeners.push_back(listener);
+		}
 
-		return FALSE;
+		boost::atomic_store(&m_PrimaryTcpListener, m_TcpListeners.front());
+		m_ClientMgr.StartAccepting();
+		const auto slotsPerListener = m_Arguments.m_MaxClient / endpoints.size();
+		const auto extraSlots = m_Arguments.m_MaxClient % endpoints.size();
+		for (size_t i = 0; i < endpoints.size(); ++i)
+		{
+			const auto& endpoint = endpoints[i];
+			const int slots = static_cast<int>(slotsPerListener + (i < extraSlots ? 1 : 0));
+			if (!m_ClientMgr.NewClient(m_TcpListeners[i]->GetTCPSocket(), slots))
+			{
+				SYSLOG().Write("[TCP/startup] Initial Accept submission failed address=%s port=%u\n",
+					endpoint.Address.c_str(), static_cast<unsigned>(endpoint.Port));
+				End();
+				return FALSE;
+			}
+			SYSLOG().Write("[TCP/listener] Address=%s Port=%u AcceptSlots=%d\n",
+				endpoint.Address.c_str(), static_cast<unsigned>(endpoint.Port), slots);
+		}
 	}
-
-	if (!GSIocp::RegIocpHandler(m_pTCPListen->GetSocket(), (ULONG_PTR)((&m_pTCPListen))))
+	catch (...)
 	{
-		SYSLOG().Write("[GSNetwork/startup] TCP listener IOCP registration failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
-		GSServer::End();
-
-		return FALSE;
+		End();
+		throw;
 	}
-
-	if (!m_ClientMgr.Begin(m_pTCPListen->GetSocket(), m_Arguments.m_MaxClient, this))
-	{
-		SYSLOG().Write("[GSNetwork/startup] TCP initial accept setup failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
-		GSServer::End();
-
-		return FALSE;
-	}
-
-//	string local_ip;
-//	m_pTCPListen->GetTCPSocket()->GetLocalIP(local_ip);
-
-//	SYSLOG().Write("bind ip address %s\n", local_ip.c_str());
 
 	return TRUE;
 }

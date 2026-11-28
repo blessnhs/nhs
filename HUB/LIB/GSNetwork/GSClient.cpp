@@ -118,6 +118,21 @@ boost::shared_ptr<GSPacketUDP>	GSClient::GetUDPSocket()
 	return m_UDPSocket;
 }
 
+void GSClient::SetAcceptListener(boost::shared_ptr<GSPacketTCP> listener)
+{
+	m_AcceptListener = std::move(listener);
+}
+
+const boost::shared_ptr<GSPacketTCP>& GSClient::GetAcceptListener() const
+{
+	return m_AcceptListener;
+}
+
+bool GSClient::ClaimAcceptReplacement()
+{
+	return m_AcceptListener && !m_AcceptReplacementClaimed.exchange(true);
+}
+
 GSClient::~GSClient(void)
 {
 	bool canRecycleId = true;

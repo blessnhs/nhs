@@ -89,6 +89,11 @@ BOOL GSHub::Initialize()
 	_arg.m_DBThreadCnt = dwThreadNum;
 	_arg.m_LogicThreadCnt = dwThreadNum;
 	_arg.m_MaxClient = m_Ini.MaxUser;
+	if (!_arg.LoadTcpBindEndpoints("./Hub.ini"))
+	{
+		SYSLOG().Write("[TCP/startup] Invalid TCP_BIND configuration in Hub.ini\n");
+		return FALSE;
+	}
 	_arg.m_Naggle = false;
 
 	if (INI.AliveSeconds != -1)
@@ -106,13 +111,15 @@ BOOL GSHub::Initialize()
 
 	ROOMMGR.CreateDBRoomList();
 
+	const WORD primaryPort = _arg.m_TcpBindEndpoints.empty()
+		? _arg.m_BindPort : _arg.m_TcpBindEndpoints.front().Port;
 	if (!Create(_arg))
 	{
-		SYSLOG().Write("[HUB/startup] Network startup failed port=%u\n", static_cast<unsigned>(_arg.m_BindPort));
+		SYSLOG().Write("[HUB/startup] Network startup failed port=%u\n", static_cast<unsigned>(primaryPort));
 		return FALSE;
 	}
-	SYSLOG().Write("[HUB/startup] Network listening port=%u maxClients=%u\n",
-		static_cast<unsigned>(_arg.m_BindPort), static_cast<unsigned>(_arg.m_MaxClient));
+	SYSLOG().Write("[HUB/startup] Network listening primaryTcpPort=%u maxClients=%u\n",
+		static_cast<unsigned>(primaryPort), static_cast<unsigned>(_arg.m_MaxClient));
 
 	//default
 	//

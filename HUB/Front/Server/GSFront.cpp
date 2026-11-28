@@ -63,6 +63,11 @@ BOOL GSFront::Initialize()
 	_arg.m_DBThreadCnt = dwThreadNum;
 	_arg.m_LogicThreadCnt = dwThreadNum;
 	_arg.m_MaxClient = m_Ini.MaxUser;
+	if (!_arg.LoadTcpBindEndpoints("./Front.ini"))
+	{
+		SYSLOG().Write("[TCP/startup] Invalid TCP_BIND configuration in Front.ini\n");
+		return FALSE;
+	}
 	_arg.m_Naggle = false;
 	if (INI.AliveSeconds != -1)
 		_arg.m_AliveTime = INI.AliveSeconds * 1000;
@@ -73,13 +78,15 @@ BOOL GSFront::Initialize()
 
 	DBPROCESSCONTAINER_CER.Initialize(_arg.m_DBThreadCnt);
 
+	const WORD primaryPort = _arg.m_TcpBindEndpoints.empty()
+		? _arg.m_BindPort : _arg.m_TcpBindEndpoints.front().Port;
 	if (!Create(_arg))
 	{
-		SYSLOG().Write("[Front/startup] Network startup failed port=%u\n", static_cast<unsigned>(_arg.m_BindPort));
+		SYSLOG().Write("[Front/startup] Network startup failed port=%u\n", static_cast<unsigned>(primaryPort));
 		return FALSE;
 	}
-	SYSLOG().Write("[Front/startup] Network listening port=%u maxClients=%u\n",
-		static_cast<unsigned>(_arg.m_BindPort), static_cast<unsigned>(_arg.m_MaxClient));
+	SYSLOG().Write("[Front/startup] Network listening primaryTcpPort=%u maxClients=%u\n",
+		static_cast<unsigned>(primaryPort), static_cast<unsigned>(_arg.m_MaxClient));
 
 	//default
 	//

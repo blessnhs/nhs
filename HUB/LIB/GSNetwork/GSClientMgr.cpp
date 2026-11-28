@@ -325,72 +325,96 @@ void GSClientMgr::InsertRecycleId(int _id)
 //임의로 콜한 disconnect에서 잘못해줬다가는 time_wait close_wait같은 tcp 4hand shake상에서 close_wait이 남게된다.)
 //접속 및 종료는 딱딱 맞춰줘야 한다.
 
-BOOL GSClientMgr::NewClient(int NewClient)
+void GSClientMgr::StartAccepting()
 {
-	GSServer::GSServer *pServer = (GSServer::GSServer *)m_GSServer;
-	SOCKET ListenSocket = pServer->GetTcpListen()->GetSocket();
-
-	if (!ListenSocket)
-	{
-		SYSLOG().Write("NewClient !ListenSocket \n");
-		return FALSE;
-	}
-
-	CThreadSync Sync(this);
-			
-	NewConnectount.fetch_add(NewClient);
-
-
-	for (int i = 0; i < NewClient; i++)
-	{
-		GSCLIENT_PTR pClient = ALLOCATOR.Create<GSClient>();
-
-		int newid = PopRecycleId();
-		if (newid == -1)
-			newid = IncClientId();
-
-		pClient->SetId(newid);
-		pClient->Create(TCP);
-		pClient->m_GSServer = pServer;
-		pClient->GetTCPSocket()->m_UseCompress = pServer->GetArgument().m_UseCompress;
-		if (AddClient(pClient) == FALSE)
-		{
-			SYSLOG().Write("NewClient failed...1 \n");
-		}
-
-
-		if (!pClient->GetTCPSocket()->Initialize())
-		{
-			SYSLOG().Write("NewClient failed...2 \n");
-			DelClient(pClient->GetId());
-			End();
-			return FALSE;
-		}
-
-		if (!pClient->GetTCPSocket()->Accept(ListenSocket))
-		{
-			SYSLOG().Write("NewClient failed...3 \n");
-			DelClient(pClient->GetId());
-			End();
-			return FALSE;
-		}
-	}
-
-	return TRUE;
+	CThreadSync sync(this);
+	m_Accepting.store(true);
 }
 
+void GSClientMgr::StopAccepting()
+{
+	CThreadSync sync(this);
+	m_Accepting.store(false);
+}
+
+bool GSClientMgr::IsAccepting() const
+{
+	return m_Accepting.load();
+}
+
+void GSClientMgr::CompleteAccept()
+{
+	std::lock_guard<std::mutex> lock(m_AcceptCompletionLock);
+	if (m_PendingAccepts.fetch_sub(1) == 1)
+		m_AcceptsDrained.notify_all();
+}
+
+void GSClientMgr::WaitForAccepts()
+{
+	std::unique_lock<std::mutex> lock(m_AcceptCompletionLock);
+	m_AcceptsDrained.wait(lock, [this] { return m_PendingAccepts.load() == 0; });
+}
+
+BOOL GSClientMgr::NewClient(int count)
+{
+	auto* server = static_cast<GSServer::GSServer*>(m_GSServer);
+	auto listener = server->GetTcpListen();
+	return listener && NewClient(listener->GetTCPSocket(), count);
+}
+
+BOOL GSClientMgr::NewClient(const boost::shared_ptr<GSPacketTCP>& listener, int count)
+{
+	auto* server = static_cast<GSServer::GSServer*>(m_GSServer);
+	CThreadSync sync(this);
+	if (!IsAccepting() || !listener || count <= 0)
+		return FALSE;
+
+	const SOCKET listenSocket = listener->GetSocket();
+	if (!listenSocket || listenSocket == INVALID_SOCKET)
+		return FALSE;
+
+	for (int i = 0; i < count; ++i)
+	{
+		auto client = ALLOCATOR.Create<GSClient>();
+		int id = PopRecycleId();
+		if (id == -1)
+			id = IncClientId();
+		client->SetId(id);
+		client->Create(TCP);
+		client->SetAcceptListener(listener);
+
+		auto socket = client->GetTCPSocket();
+		socket->m_UseCompress = server->GetArgument().m_UseCompress;
+		if (!socket->Initialize() || !AddClient(client))
+			return FALSE;
+
+		m_PendingAccepts.fetch_add(1);
+		BOOL submitted = FALSE;
+		try
+		{
+			submitted = socket->Accept(listenSocket);
+		}
+		catch (...)
+		{
+			CompleteAccept();
+			DelClient(id);
+			throw;
+		}
+		if (!submitted)
+		{
+			CompleteAccept();
+			DelClient(id);
+			return FALSE;
+		}
+
+		NewConnectount.fetch_add(1);
+	}
+	return TRUE;
+}
 
 GSCLIENT_PTR GSClientMgr::NewClient2()
 {
 	GSServer::GSServer* pServer = (GSServer::GSServer*)m_GSServer;
-	SOCKET ListenSocket = pServer->GetTcpListen()->GetSocket();
-
-	if (!ListenSocket)
-	{
-		SYSLOG().Write("NewClient !ListenSocket \n");
-		return FALSE;
-	}
-
 	CThreadSync Sync(this);
 	for (int i = 0; i < 1; i++)
 	{
@@ -415,49 +439,6 @@ GSCLIENT_PTR GSClientMgr::NewClient2()
 	return NULL;
 }
 
-
-BOOL GSClientMgr::Begin(SOCKET ListenSocket,WORD MaxClients,LPVOID pServer)
-{
-	if (!ListenSocket)
-		return FALSE;
-
-	DWORD MaxUser = m_MaxClients = MaxClients;
-
-
-	GSServer::GSServer* Server = (GSServer::GSServer*)pServer;
-
-
-	for (DWORD i=0;i<MaxUser;i++)
-	{
-		GSCLIENT_PTR pClient = ALLOCATOR.Create<GSClient>();
-		pClient->SetId(IncClientId());
-		pClient->Create(TCP);
-		pClient->m_GSServer = pServer;
-		pClient->GetTCPSocket()->m_UseCompress = Server->GetArgument().m_UseCompress;
-
-		if (!pClient->GetTCPSocket()->Initialize())
-		{
-			End();
-			return FALSE;
-		}
-
-		// AcceptEx can complete before its submitting thread returns.
-		if (!AddClient(pClient))
-		{
-			End();
-			return FALSE;
-		}
-
-		if (!pClient->GetTCPSocket()->Accept(ListenSocket))
-		{
-			DelClient(pClient->GetId());
-			End();
-			return FALSE;
-		}
-	}
-
-	return TRUE;
-}
 
 VOID GSClientMgr::End()
 {

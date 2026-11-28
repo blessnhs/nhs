@@ -60,37 +60,46 @@ BOOL GSSocket::Termination(VOID)
 
 BOOL GSSocket::Listen(USHORT port, INT backLog)
 {
+	if (Listen("0.0.0.0", port, backLog))
+		return TRUE;
+	const int error = WSAGetLastError();
+	Termination();
+	WSASetLastError(error);
+	return FALSE;
+}
+
+BOOL GSSocket::Listen(const char* address, USHORT port, INT backLog)
+{
 	CThreadSync Sync(*this);
 
 	if (port <= 0 || backLog <= 0)
+	{
+		WSASetLastError(WSAEINVAL);
 		return FALSE;
+	}
 
 	if (!m_Socket)
 		return FALSE;
 
-	SOCKADDR_IN ListenSocketInfo;
+	SOCKADDR_IN ListenSocketInfo{};
+	ListenSocketInfo.sin_family = AF_INET;
+	ListenSocketInfo.sin_port = htons(port);
+	if (!address || InetPtonA(AF_INET, address, &ListenSocketInfo.sin_addr) != 1)
+	{
+		WSASetLastError(WSAEINVAL);
+		return FALSE;
+	}
 
-	ListenSocketInfo.sin_family				= AF_INET;
-	ListenSocketInfo.sin_port				= htons(port);
-	ListenSocketInfo.sin_addr.S_un.S_addr	= htonl(INADDR_ANY);
-
-	int option = 1;
-
-	setsockopt(m_Socket, SOL_SOCKET, SO_REUSEADDR, (char*)&option, sizeof(option));
+	const int exclusive = 1;
+	if (setsockopt(m_Socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+		reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) == SOCKET_ERROR)
+		return FALSE;
 
 	if (::bind(m_Socket, (struct sockaddr*) &ListenSocketInfo, sizeof(SOCKADDR_IN)) == SOCKET_ERROR)
-	{
-		Termination();
-
 		return FALSE;
-	}
 
 	if (listen(m_Socket, backLog) == SOCKET_ERROR)
-	{
-		Termination();
-
 		return FALSE;
-	}
 
 	LINGER Linger;
 	Linger.l_onoff	= 1;
@@ -110,6 +119,12 @@ SOCKET GSSocket::GetSocket(VOID)
 {
 	CThreadSync Sync(*this);
 	return m_Socket; 
+}
+
+BOOL GSSocket::UpdateAcceptContext(GSSocket& listener)
+{
+	CThreadSync sync(listener);
+	return UpdateAcceptContext(listener.m_Socket);
 }
 
 BOOL GSSocket::UpdateAcceptContext(SOCKET listenSocket)
