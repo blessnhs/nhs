@@ -183,8 +183,23 @@ bool GSProactorImpl::Handle_Event(int ProcId)
 	if (q->try_pop(pJob) == FALSE)
 		return false;
 
-	if(pJob != NULL)
-		pJob->Execute(pJob->Message);
+	if (pJob != NULL)
+	{
+		try
+		{
+			pJob->Execute(pJob->Message);
+		}
+		catch (const std::exception& error)
+		{
+			SYSLOG().Write("[Job worker] Exception queue=%d type=%d subtype=%d detail=%.512s\n",
+				ProcId, pJob->Type, pJob->SubType, error.what());
+		}
+		catch (...)
+		{
+			SYSLOG().Write("[Job worker] Unknown exception queue=%d type=%d subtype=%d\n",
+				ProcId, pJob->Type, pJob->SubType);
+		}
+	}
 	else
 		SYSLOG().Write("execute pjob is null");
 

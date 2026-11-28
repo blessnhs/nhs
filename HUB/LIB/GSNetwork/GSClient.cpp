@@ -13,6 +13,75 @@
 
 atomic<int>		DebugCount = 0;
 
+namespace
+{
+	std::atomic<unsigned long long> ClientsCreated{0};
+	std::atomic<unsigned long long> ClientsDestroyed{0};
+	std::atomic<unsigned long long> ClientsRemoved{0};
+	std::atomic<unsigned long long> IdsRetiredWithPendingIo{0};
+	std::atomic<int> PeakLiveClients{0};
+	std::atomic<int> RemovedClientsStillLive{0};
+	std::mutex DetachedClientsLock;
+	GSClient* FirstDetachedClient = nullptr;
+	GSClient* LastDetachedClient = nullptr;
+	unsigned long long MaxDetachedMs = 0;
+	std::atomic<unsigned long long> DuplicateCloseIgnored{0};
+}
+
+GSClientLifetimeStats GSClient::GetLifetimeStats()
+{
+	return {
+		ClientsCreated.load(std::memory_order_relaxed),
+		ClientsDestroyed.load(std::memory_order_relaxed),
+		ClientsRemoved.load(std::memory_order_relaxed),
+		IdsRetiredWithPendingIo.load(std::memory_order_relaxed),
+		PeakLiveClients.load(std::memory_order_relaxed),
+		RemovedClientsStillLive.load(std::memory_order_relaxed)
+	};
+}
+
+void GSClient::MarkRemovedFromMap()
+{
+	std::lock_guard<std::mutex> lock(DetachedClientsLock);
+	m_DetachedAt = GetTickCount64();
+	m_DetachedId = GetId();
+	m_DetachedPrevious = LastDetachedClient;
+	if (LastDetachedClient)
+		LastDetachedClient->m_DetachedNext = this;
+	else
+		FirstDetachedClient = this;
+	LastDetachedClient = this;
+	ClientsRemoved.fetch_add(1, std::memory_order_relaxed);
+	RemovedClientsStillLive.fetch_add(1, std::memory_order_relaxed);
+}
+
+void GSClient::LogDetachedClients()
+{
+	struct Sample { DWORD Id; ULONGLONG AgeMs; };
+	Sample samples[4]{};
+	unsigned sampleCount = 0;
+	unsigned overdue = 0;
+	unsigned long long longestCompletedMs = 0;
+	{
+		std::lock_guard<std::mutex> lock(DetachedClientsLock);
+		const auto now = GetTickCount64();
+		for (auto* client = FirstDetachedClient; client; client = client->m_DetachedNext)
+		{
+			const auto age = now - client->m_DetachedAt;
+			if (age < 30000)
+				break;
+			++overdue;
+			if (sampleCount < _countof(samples))
+				samples[sampleCount++] = {client->m_DetachedId, age};
+		}
+		longestCompletedMs = MaxDetachedMs;
+	}
+	SYSLOG().Write("[GSClient/cleanup] DetachedOver30s=%u MaxCompletedDetachMs=%llu DuplicateCloseIgnored=%llu\n",
+		overdue, longestCompletedMs, DuplicateCloseIgnored.load(std::memory_order_relaxed));
+	for (unsigned i = 0; i < sampleCount; ++i)
+		SYSLOG().Write("[GSClient/cleanup-delay] ClientId=%lu DetachedMs=%llu\n", samples[i].Id, samples[i].AgeMs);
+}
+
 extern atomic<int>		DisConnectCount;
 
 GSClient::GSClient(void)
@@ -29,7 +98,13 @@ GSClient::GSClient(void)
 	m_Socket = 0;
 	m_TryCloseCount = 0;
 
-	DebugCount.fetch_add(1);
+	ClientsCreated.fetch_add(1, std::memory_order_relaxed);
+	const int live = DebugCount.fetch_add(1, std::memory_order_relaxed) + 1;
+	int peak = PeakLiveClients.load(std::memory_order_relaxed);
+	while (live > peak &&
+		!PeakLiveClients.compare_exchange_weak(peak, live, std::memory_order_relaxed))
+	{
+	}
 }
 
 boost::shared_ptr<GSPacketTCP>	GSClient::GetTCPSocket()
@@ -56,25 +131,46 @@ GSClient::~GSClient(void)
 			SYSLOG().Write("Client %lu retired with completions pending (accept=%d, read=%d, write=%d)\n",
 				GetId(), accepts, reads, writes);
 		}
-		else
-		{
-			SYSLOG().Write("alert canRecycleId failed....Client %lu retired with completions pending (accept=%d, read=%d, write=%d)\n",
-				GetId(), accepts, reads, writes);
-		}
 	}
 
-	DebugCount.fetch_sub(1);
 
 	// Completions carry only the client ID. Retire IDs with outstanding I/O.
 	auto* server = static_cast<GSServer::GSServer*>(m_GSServer);
-	if (canRecycleId && server)
-		server->GetClientMgr().InsertRecycleId(GetId());
+	if (server)
+	{
+		if (canRecycleId)
+			server->GetClientMgr().InsertRecycleId(GetId());
+		else
+			IdsRetiredWithPendingIo.fetch_add(1, std::memory_order_relaxed);
+	}
 
 	if (m_TCPSocket != NULL)
 		m_TCPSocket->Termination();
 
 	if (m_UDPSocket != NULL)
 		m_UDPSocket->Termination();
+
+	{
+		std::lock_guard<std::mutex> lock(DetachedClientsLock);
+		if (m_DetachedPrevious || FirstDetachedClient == this)
+		{
+			if (m_DetachedPrevious)
+				m_DetachedPrevious->m_DetachedNext = m_DetachedNext;
+			else
+				FirstDetachedClient = m_DetachedNext;
+			if (m_DetachedNext)
+				m_DetachedNext->m_DetachedPrevious = m_DetachedPrevious;
+			else
+				LastDetachedClient = m_DetachedPrevious;
+			const auto age = GetTickCount64() - m_DetachedAt;
+			if (age > MaxDetachedMs)
+				MaxDetachedMs = age;
+			RemovedClientsStillLive.fetch_sub(1, std::memory_order_relaxed);
+		}
+	}
+
+	ClientsDestroyed.fetch_add(1, std::memory_order_relaxed);
+	DebugCount.fetch_sub(1, std::memory_order_relaxed);
 }
 
 BOOL  GSClient::Create(BYTE Type,ClientType type)
@@ -333,7 +429,9 @@ VOID GSClient::ProcDisconnect(boost::shared_ptr<GSClient> pClient,bool isForce)
 	//그래서 그넘들은 종료 처리를 해저야하기 때문에 아래에서 리턴시키면 안된다.
 	if(GetConnected() == FALSE && isForce == false && this->GetProcess() != NULL)
 	{
-		SYSLOG().Write("Already Disconnected socket handle %lu getid() %lu \n",(unsigned long)GetSocket(),GetId());
+		const auto duplicates = DuplicateCloseIgnored.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (duplicates <= 4 || duplicates % 1024 == 0)
+			SYSLOG().Write("[GSClient/duplicate-close] ClientId=%lu Total=%llu\n", GetId(), duplicates);
 		return ;
 	}
 

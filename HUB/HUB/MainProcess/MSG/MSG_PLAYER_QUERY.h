@@ -773,9 +773,9 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 				return 0;
 
 			}
-			catch (const std::exception& e)
+			catch (const std::exception&)
 			{
-				printf("Error exception:%s\n", e.what());
+				SYSLOG().Write("[HUB/auth] External authentication request failed\n");
 				return -1;
 			}
 
@@ -908,7 +908,7 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 			}
 			catch (...)
 			{
-				printf("RequestPlayerAuth try catch \n");
+				SYSLOG().Write("[HUB/auth] RequestPlayerAuth failed\n");
 			}
 		}
 
@@ -1015,9 +1015,9 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 				return 0;
 
 			}
-			catch (const std::exception& e)
+			catch (const std::exception&)
 			{
-				printf("Error exception:%s\n", e.what());
+				SYSLOG().Write("[HUB/purchase] External verification request failed\n");
 				return -1;
 			}
 
@@ -1065,7 +1065,7 @@ class MSG_PLAYER_QUERY<##class_name>:public IMESSAGE	\
 			}
 			catch (...)
 			{
-				printf("RequestVerifyPurchase try catch \n");
+				SYSLOG().Write("[HUB/purchase] RequestVerifyPurchase failed\n");
 			}
 		}
 

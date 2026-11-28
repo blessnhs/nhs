@@ -10,6 +10,7 @@ extern atomic<int>		ConnectCount;
 extern atomic<int>		DisConnectCount;
 
 atomic<int>				NewConnectount = 0;
+static std::atomic<unsigned long long> ReusedClientIds{0};
 
 namespace GSNetwork	{	namespace GSClientMgr	{
 
@@ -48,6 +49,15 @@ VOID GSClientMgr::CheckAliveTime()
 
 	int debug_null_cnt = 0;
 	int connection_cnt = 0;
+	int registered = 0;
+	int acceptWaiting = 0;
+	int udpSockets = 0;
+	int negativeIoCounters = 0;
+	int disconnectedWithoutAccept = 0;
+	int missingSockets = 0;
+	long long pendingAccepts = 0;
+	long long pendingReads = 0;
+	long long pendingWrites = 0;
 
 	for (auto& kv : m_Clients)
 	{
@@ -57,6 +67,39 @@ VOID GSClientMgr::CheckAliveTime()
 		{
 			debug_null_cnt++;
 			continue;
+		}
+
+		++registered;
+		auto* tcp = client->GetTCPSocket().get();
+		auto* udp = client->GetUDPSocket().get();
+		auto* socket = tcp ? static_cast<GSNetwork::GSSocket::GSSocket*>(tcp)
+			: static_cast<GSNetwork::GSSocket::GSSocket*>(udp);
+		if (udp)
+			++udpSockets;
+		if (socket)
+		{
+			const int accepts = socket->m_OLP_REMAIN_COUNT_ACC.load(std::memory_order_relaxed);
+			const int reads = socket->m_OLP_REMAIN_COUNT_REC.load(std::memory_order_relaxed);
+			const int writes = socket->m_OLP_REMAIN_COUNT_SND.load(std::memory_order_relaxed);
+
+			if (tcp && accepts > 0 && !client->GetConnected())
+				++acceptWaiting;
+			if (tcp && !client->GetConnected() && accepts == 0)
+				++disconnectedWithoutAccept;
+			if (accepts < 0 || reads < 0 || writes < 0)
+			{
+				if (++negativeIoCounters <= 4)
+					SYSLOG().Write("[GSClient/invalid-io-count] ClientId=%lu Accept=%d Read=%d Write=%d\n",
+						client->GetId(), accepts, reads, writes);
+			}
+
+			pendingAccepts += accepts;
+			pendingReads += reads;
+			pendingWrites += writes;
+		}
+		else
+		{
+			++missingSockets;
 		}
 
 		if (client->GetConnected())
@@ -135,30 +178,35 @@ VOID GSClientMgr::CheckAliveTime()
 		}
 	}
 
-//	SYSTEMTIME		sysTime;
-//	::GetLocalTime(&sysTime);
+	const auto lifetime = GSClient::GetLifetimeStats();
+	const int live = DebugCount.load(std::memory_order_relaxed);
+	const bool removeQueueEmpty = m_Remove_Queue.empty();
+	const auto trackedWrites = pServer->GetPendingWriteCount();
+	const int poolInUse = ALLOCATOR.GetOutstandingAllocations<GSClient>();
 
-//	SYSLOG().Write("[ %04d-%02d-%02d %02d:%02d:%02d ] Current User Count %d connectable count %d Debug Count %d\n",
-//		sysTime.wYear, sysTime.wMonth, sysTime.wDay, sysTime.wHour, sysTime.wMinute, sysTime.wSecond, pServer->CurrentPlayerCount(), ConnectableSocketCount(), DebugCount.fetch_add(0));
+	char msg[384];
+	sprintf_s(msg, sizeof(msg),
+		"[Sessions] Connected=%d Registered=%d AcceptWaiting=%d UDP=%d LiveObjects=%d"
+		" RemovedStillLive=%d RemoveQueueEmpty=%s EmptySlots=%d"
+		" | Totals: Accept=%d AcceptSlotsRequested=%d Disconnect=%d\n",
+		connection_cnt, registered, acceptWaiting, udpSockets, live, lifetime.RemovedStillLive,
+		removeQueueEmpty ? "yes" : "no", debug_null_cnt, ConnectCount.load(), NewConnectount.load(), DisConnectCount.load());
+	ConsoleHelper::DebugConsoleString(0, msg);
+	SYSLOG().Write("%s", msg);
 
-//	SYSLOG().Write("\nre m_insert_queue queue %d\n", m_ReInsert_Queue.unsafe_size());
-//	SYSLOG().Write("re m_remove_queue queue %d\n", m_Remove_Queue.unsafe_size());
-//	SYSLOG().Write("\nconnect socket count %d GetActiveSocketCount %d ConnectableSocketCount %d\n", 
-//	pServer->CurrentPlayerCount(), GetActiveSocketCount(), ConnectableSocketCount());
-
-	//SYSLOG().Write("[UserCount : %d] [Debug Count : %d]\n",
-	//	pServer->CurrentPlayerCount(), DebugCount.fetch_add(0));
-	{
-
-		char msg[256];
-		
-		sprintf_s(msg, 256, "[Conncted:%d] [Debug:%d] [RemoveQ:%zd] [accept :%d] [Toal New : %d][Total Close : %d] [debug_null %d]\n",
-			connection_cnt, DebugCount.fetch_add(0), m_Remove_Queue.unsafe_size(), ConnectCount.fetch_add(0), NewConnectount.fetch_add(0), DisConnectCount.fetch_add(0), debug_null_cnt);
-		//	pServer->TotalRecvBytes.fetch_add(0)/1024/1024,pServer->TotalSendBytes.fetch_add(0) / 1024 / 1024);
-
-		ConsoleHelper::DebugConsoleString(0, msg);
-
-	}
+	SYSLOG().Write(
+		"[GSClient/lifetime] Created=%llu Destroyed=%llu PeakLive=%d PoolInUse=%d"
+		" RemovedFromMap=%llu RemovedStillLive=%d IdsReused=%llu IdsRetiredWithPendingIO=%llu\n",
+		lifetime.Created, lifetime.Destroyed, lifetime.PeakLive, poolInUse,
+		lifetime.RemovedFromMap, lifetime.RemovedStillLive,
+		ReusedClientIds.load(std::memory_order_relaxed), lifetime.IdsRetiredWithPendingIo);
+	SYSLOG().Write(
+		"[GSClient/io] RegisteredPending: Accept=%lld Read=%lld Write=%lld"
+		" | IOCPTrackedWrites=%zu ClientsWithNegativeCounters=%d\n",
+		pendingAccepts, pendingReads, pendingWrites, trackedWrites, negativeIoCounters);
+	SYSLOG().Write("[GSClient/registry] DisconnectedWithoutAccept=%d MissingSocket=%d MapSlots=%d\n",
+		disconnectedWithoutAccept, missingSockets, registered + debug_null_cnt);
+	GSClient::LogDetachedClients();
 }
 
 int GSClientMgr::GetActiveSocketCount()
@@ -239,7 +287,9 @@ BOOL GSClientMgr::DelClient(int id)
 {
 	// [LOCKFIX] 다른 스레드가 같은 값을 읽는 중일 수 있으므로 atomic_store
 	// (concurrent_unordered_map은 삽입/조회만 스레드 안전하고 값 객체의 대입은 보호하지 않는다)
-	boost::atomic_store(&m_Clients[id], GSCLIENT_PTR());
+	auto removed = boost::atomic_exchange(&m_Clients[id], GSCLIENT_PTR());
+	if (removed)
+		removed->MarkRemovedFromMap();
 
 	return TRUE;
 }
@@ -252,7 +302,10 @@ int GSClientMgr::PopRecycleId()
 
 	int id;
 	if (m_Reycle_Id_Queue.try_pop(id) == true)
+	{
+		ReusedClientIds.fetch_add(1, std::memory_order_relaxed);
 		return id;
+	}
 
 	return -1;
 }

@@ -106,7 +106,13 @@ BOOL GSHub::Initialize()
 
 	ROOMMGR.CreateDBRoomList();
 
-	Create(_arg);
+	if (!Create(_arg))
+	{
+		SYSLOG().Write("[HUB/startup] Network startup failed port=%u\n", static_cast<unsigned>(_arg.m_BindPort));
+		return FALSE;
+	}
+	SYSLOG().Write("[HUB/startup] Network listening port=%u maxClients=%u\n",
+		static_cast<unsigned>(_arg.m_BindPort), static_cast<unsigned>(_arg.m_MaxClient));
 
 	//default
 	//

@@ -41,6 +41,7 @@ protected:
 public:
 	BOOL				Initialize(VOID);
 	BOOL				Termination(VOID);
+	size_t GetPendingWriteCount();
 	
 	BOOL				RegIocpHandler(SOCKET socket, ULONG_PTR completionKey);
 	BOOL SubmitWrite(SOCKET socket, std::unique_ptr<_OVERLAPPED_EX> operation, DWORD length, bool addressed);

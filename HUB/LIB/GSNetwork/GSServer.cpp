@@ -321,6 +321,7 @@ BOOL GSServer::BeginTCP()
 
 	if (!m_pTCPListen->GetTCPSocket()->Initialize())
 	{
+		SYSLOG().Write("[GSNetwork/startup] TCP packet socket setup failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
 		GSServer::End();
 
 		return FALSE;
@@ -328,6 +329,7 @@ BOOL GSServer::BeginTCP()
 
 	if (!m_pTCPListen->GetTCPSocket()->CreateTcpSocket())
 	{
+		SYSLOG().Write("[GSNetwork/startup] TCP socket creation failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
 		GSServer::End();
 
 		return FALSE;
@@ -335,6 +337,7 @@ BOOL GSServer::BeginTCP()
 
 	if (!m_pTCPListen->GetTCPSocket()->Listen((WORD)m_Arguments.m_BindPort, /*m_Arguments.m_MaxClient*/SOMAXCONN))
 	{
+		SYSLOG().Write("[GSNetwork/startup] TCP bind/listen failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
 		GSServer::End();
 
 		return FALSE;
@@ -342,6 +345,7 @@ BOOL GSServer::BeginTCP()
 
 	if (!GSIocp::RegIocpHandler(m_pTCPListen->GetSocket(), (ULONG_PTR)((&m_pTCPListen))))
 	{
+		SYSLOG().Write("[GSNetwork/startup] TCP listener IOCP registration failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
 		GSServer::End();
 
 		return FALSE;
@@ -349,6 +353,7 @@ BOOL GSServer::BeginTCP()
 
 	if (!m_ClientMgr.Begin(m_pTCPListen->GetSocket(), m_Arguments.m_MaxClient, this))
 	{
+		SYSLOG().Write("[GSNetwork/startup] TCP initial accept setup failed port=%u\n", static_cast<unsigned>(m_Arguments.m_BindPort));
 		GSServer::End();
 
 		return FALSE;
@@ -382,6 +387,7 @@ BOOL GSServer::BeginUDP()
 	
 		if (!UDPListenPort->GetUDPSocket()->Initialize())
 		{
+			SYSLOG().Write("[GSNetwork/startup] UDP packet socket setup failed port=%u\n", static_cast<unsigned>(m_Arguments.m_UdpPorts[i]));
 			GSServer::End();
 
 			return FALSE;
@@ -389,6 +395,7 @@ BOOL GSServer::BeginUDP()
 
 		if (!UDPListenPort->GetUDPSocket()->CreateUdpSocket((unsigned short)m_Arguments.m_UdpPorts[i]))
 		{
+			SYSLOG().Write("[GSNetwork/startup] UDP bind failed port=%u\n", static_cast<unsigned>(m_Arguments.m_UdpPorts[i]));
 			GSServer::End();
 
 			return FALSE;
@@ -396,6 +403,7 @@ BOOL GSServer::BeginUDP()
 
 		if (!UDPListenPort->GetUDPSocket()->RegisterIocp(*this, reinterpret_cast<ULONG_PTR>(UDPListenPort->GetUDPSocket().get())))
 		{
+			SYSLOG().Write("[GSNetwork/startup] UDP IOCP registration failed port=%u\n", static_cast<unsigned>(m_Arguments.m_UdpPorts[i]));
 			GSServer::End();
 
 			return FALSE;

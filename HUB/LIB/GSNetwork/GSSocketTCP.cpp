@@ -91,8 +91,10 @@ BOOL GSSocketTCP::InitializeReadForIocp(VOID)
 	if (ReadBytes > MAX_BUFFER_LENGTH)
 		SYSLOG().Write("wsa recv size over!!\n");
 
-	if (ReturnValue == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
+	const int error = ReturnValue == SOCKET_ERROR ? WSAGetLastError() : 0;
+	if (ReturnValue == SOCKET_ERROR && error != WSA_IO_PENDING)
 	{
+		SYSLOG().Write("[IOCP/TCP read] Submission failed client=%d wsa=%d\n", m_ClientId, error);
 		m_OLP_REMAIN_COUNT_REC.fetch_sub(1);
 		delete m_Read_OLP;
 		Termination();

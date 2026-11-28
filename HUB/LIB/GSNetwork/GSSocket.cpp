@@ -324,6 +324,7 @@ BOOL GSSocket::Accept(SOCKET listenSocket)
 		int ErrorCode = WSAGetLastError();
 		if (ErrorCode != ERROR_IO_PENDING)
 		{
+			SYSLOG().Write("[IOCP/accept] Submission failed client=%d wsa=%d\n", m_ClientId, ErrorCode);
 			m_OLP_REMAIN_COUNT_ACC.fetch_sub(1);
 			delete m_Accept_OLP;
 			Termination();

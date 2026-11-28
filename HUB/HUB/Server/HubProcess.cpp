@@ -93,9 +93,25 @@ VOID HubProcess::Process(boost::shared_ptr<XDATA> pBuffer, boost::shared_ptr<GSC
 
 		NET_FUNC_EXE2(pBuffer, Client);
 	}
-	catch (int exception)
+	catch (int error)
 	{
-		printf("handle exception %d\n", exception);
+		SYSLOG().Write("[HUB/Front packet] %s: integer exception=%d client=%lu protocol=%u\n",
+			__FUNCTION__, error, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+	}
+	catch (const std::exception&)
+	{
+		SYSLOG().Write("[HUB/Front packet] %s: standard exception client=%lu protocol=%u\n",
+			__FUNCTION__, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+		throw;
+	}
+	catch (...)
+	{
+		SYSLOG().Write("[HUB/Front packet] %s: unknown exception client=%lu protocol=%u\n",
+			__FUNCTION__, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+		throw;
 	}
 }
 

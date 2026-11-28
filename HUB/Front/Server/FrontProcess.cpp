@@ -47,9 +47,25 @@ VOID FrontProcess::Process(boost::shared_ptr<XDATA> pBuffer,boost::shared_ptr<GS
 
 
 	}
-	catch (int exception)
+	catch (int error)
 	{
-		printf("handle exception %d\n", exception);
+		SYSLOG().Write("[Front/client packet] %s: integer exception=%d client=%lu protocol=%u\n",
+			__FUNCTION__, error, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+	}
+	catch (const std::exception&)
+	{
+		SYSLOG().Write("[Front/client packet] %s: standard exception client=%lu protocol=%u\n",
+			__FUNCTION__, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+		throw;
+	}
+	catch (...)
+	{
+		SYSLOG().Write("[Front/client packet] %s: unknown exception client=%lu protocol=%u\n",
+			__FUNCTION__, Client ? Client->GetId() : 0UL,
+			pBuffer ? static_cast<unsigned>(pBuffer->MainId) : 0u);
+		throw;
 	}
 }
 

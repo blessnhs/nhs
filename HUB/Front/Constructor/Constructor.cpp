@@ -13,7 +13,10 @@ FrontConstructor::FrontConstructor(void)
 	handler.Install();
 	handler.SetFHPtr(nullptr);
 
-	SERVER.Initialize();
+	if (!SERVER.Initialize())
+	{
+		throw std::runtime_error("Network initialization failed");
+	}
 	PROXYHUB.Create(INI.HubSessionCount);
 
 	GetContentsTimer().Start();

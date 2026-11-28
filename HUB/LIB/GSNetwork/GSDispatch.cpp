@@ -30,7 +30,18 @@ VOID GSDispatch::OnExecuteCallback(VOID *object)
 		return;
 
 	std::unique_ptr<_DispatchJob> job(pJob);
-	job->Job.Func((LPVOID)&job->Job);
+	try
+	{
+		job->Job.Func((LPVOID)&job->Job);
+	}
+	catch (const std::exception& error)
+	{
+		SYSLOG().Write("[Dispatch worker] Exception detail=%.512s\n", error.what());
+	}
+	catch (...)
+	{
+		SYSLOG().Write("[Dispatch worker] Unknown exception\n");
+	}
 }
 
 VOID GSDispatch::Exe(_DispatchJob *pJob)

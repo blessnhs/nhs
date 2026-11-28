@@ -107,8 +107,10 @@ void ProxyHubContainer::TryConnect()
 		const SOCKET handle = socket->Connect2(INI.HubIp, INI.HubPort);
 		if (!handle)
 		{
+			const int error = WSAGetLastError();
 			socket->Termination();
-			SYSLOG().Write("ProxyHubContainer: HUB connect failed\n");
+			SYSLOG().Write("[Front/HUB link] TCP connect failed client=%lu port=%u wsa=%d\n",
+				client->GetId(), static_cast<unsigned>(INI.HubPort), error);
 			continue;
 		}
 
@@ -116,7 +118,7 @@ void ProxyHubContainer::TryConnect()
 			!socket->Initialize())
 		{
 			socket->Termination();
-			SYSLOG().Write("ProxyHubContainer: HUB socket setup failed\n");
+			SYSLOG().Write("[Front/HUB link] IOCP registration or socket setup failed client=%lu\n", client->GetId());
 			continue;
 		}
 
@@ -134,7 +136,7 @@ void ProxyHubContainer::TryConnect()
 		if (!readStarted)
 		{
 			socket->Termination();
-			SYSLOG().Write("ProxyHubContainer: HUB read registration failed\n");
+			SYSLOG().Write("[Front/HUB link] First read was not registered client=%lu\n", client->GetId());
 		}
 	}
 }

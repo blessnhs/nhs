@@ -36,9 +36,23 @@ enum ClientType
 	SERVER_CLIENT		// 서버간에 연결
 };
 
+struct GSClientLifetimeStats
+{
+	unsigned long long Created;
+	unsigned long long Destroyed;
+	unsigned long long RemovedFromMap;
+	unsigned long long IdsRetiredWithPendingIo;
+	int PeakLive;
+	int RemovedStillLive;
+};
+
 class GSClient : public GSGuard<GSClient>,public IClientSession::IClientSession ,public IResponse , public IHandler<IMessagePtr>, public boost::enable_shared_from_this<GSClient>
 {
 public:
+	static GSClientLifetimeStats GetLifetimeStats();
+	void MarkRemovedFromMap();
+	static void LogDetachedClients();
+
 
 	GSClient(void);
 	~GSClient(void);
@@ -109,6 +123,11 @@ public:
 	ClientType										GetClientType();
 
 private:
+	GSClient* m_DetachedPrevious = nullptr;
+	GSClient* m_DetachedNext = nullptr;
+	ULONGLONG m_DetachedAt = 0;
+	DWORD m_DetachedId = 0;
+
 
 
 	boost::shared_ptr<IProcess<int>>				m_Process;

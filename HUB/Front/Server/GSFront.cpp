@@ -73,7 +73,13 @@ BOOL GSFront::Initialize()
 
 	DBPROCESSCONTAINER_CER.Initialize(_arg.m_DBThreadCnt);
 
-	Create(_arg);
+	if (!Create(_arg))
+	{
+		SYSLOG().Write("[Front/startup] Network startup failed port=%u\n", static_cast<unsigned>(_arg.m_BindPort));
+		return FALSE;
+	}
+	SYSLOG().Write("[Front/startup] Network listening port=%u maxClients=%u\n",
+		static_cast<unsigned>(_arg.m_BindPort), static_cast<unsigned>(_arg.m_MaxClient));
 
 	//default
 	//

@@ -15,8 +15,13 @@ public:
 	template<class T>
 	boost::shared_ptr<T> Create()
 	{
-		static GSFactory<T,true>	m_Pool;
-		return m_Pool.alloc();
+		return GetFactoryPool<T>().alloc();
+	}
+
+	template<class T>
+	int GetOutstandingAllocations()
+	{
+		return GetFactoryPool<T>().GetAllocCount();
 	}
 
 	template< template <class T> class U,class N>
@@ -31,6 +36,14 @@ public:
 	{
 		static boost::object_pool<T> obj_pool;
 		return obj_pool;
+	}
+
+private:
+	template<class T>
+	static GSFactory<T, true>& GetFactoryPool()
+	{
+		static GSFactory<T, true> pool;
+		return pool;
 	}
 };
 

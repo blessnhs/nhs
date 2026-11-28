@@ -46,11 +46,15 @@ BOOL GSIocp::Initialize(VOID)
 	m_Handle			= CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 
 	if (!m_Handle)
+	{
+		SYSLOG().Write("[IOCP/startup] CreateIoCompletionPort failed win32=%lu\n", GetLastError());
 		return FALSE;
+	}
 
 	m_BeginEvtHandle = CreateEvent(0, FALSE, FALSE, 0);
 	if (m_BeginEvtHandle == NULL)
 	{
+		SYSLOG().Write("[IOCP/startup] CreateEvent failed win32=%lu\n", GetLastError());
 		Termination();
 
 		return FALSE;
@@ -61,6 +65,7 @@ BOOL GSIocp::Initialize(VOID)
 		HANDLE WorkerThread = CreateThread(NULL, 0, GSNetwork::GSIocp::WorkerThread, this, 0, NULL);
 		if (!WorkerThread)
 		{
+			SYSLOG().Write("[IOCP/startup] CreateThread failed worker=%lu win32=%lu\n", i, GetLastError());
 			Termination();
 			return FALSE;
 		}
@@ -74,6 +79,12 @@ BOOL GSIocp::Initialize(VOID)
 		m_AcceptingWrites = true;
 	}
 	return TRUE;
+}
+
+size_t GSIocp::GetPendingWriteCount()
+{
+	std::lock_guard<std::mutex> pending(m_PendingWritesLock);
+	return m_PendingWrites.size();
 }
 
 BOOL GSIocp::Termination(VOID)
@@ -150,7 +161,12 @@ BOOL GSIocp::RegIocpHandler(SOCKET socket, ULONG_PTR completionKey)
 	if (!m_AcceptingWrites || !m_Handle || socket == INVALID_SOCKET || !completionKey)
 		return FALSE;
 
-	return CreateIoCompletionPort((HANDLE)socket, m_Handle, completionKey, 0) != NULL;
+	if (CreateIoCompletionPort((HANDLE)socket, m_Handle, completionKey, 0))
+		return TRUE;
+
+	SYSLOG().Write("[IOCP/register] Socket association failed socket=%llu win32=%lu\n",
+		static_cast<unsigned long long>(socket), GetLastError());
+	return FALSE;
 }
 
 BOOL GSIocp::SubmitWrite(SOCKET socket, std::unique_ptr<OVERLAPPED_EX> operation, DWORD length, bool addressed)
@@ -172,8 +188,12 @@ BOOL GSIocp::SubmitWrite(SOCKET socket, std::unique_ptr<OVERLAPPED_EX> operation
 	const int result = addressed
 		? WSASendTo(socket, &buffer, 1, nullptr, 0, address, sizeof(SOCKADDR_IN), overlapped, nullptr)
 		: WSASend(socket, &buffer, 1, nullptr, 0, overlapped, nullptr);
-	if (result == 0 || WSAGetLastError() == WSA_IO_PENDING)
+	const int error = result == SOCKET_ERROR ? WSAGetLastError() : 0;
+	if (result == 0 || error == WSA_IO_PENDING)
 		return TRUE;
+
+	SYSLOG().Write("[IOCP/send] Submission failed socket=%llu bytes=%lu wsa=%d\n",
+		static_cast<unsigned long long>(socket), length, error);
 
 	// Winsock sends no completion for a synchronous submission failure.
 	{
@@ -209,13 +229,14 @@ VOID GSIocp::WorkerThread()
 				&Overlapped,
 				INFINITE);
 
+			const DWORD completionError = Successed ? ERROR_SUCCESS : GetLastError();
 			if (!Overlapped)
 			{
 				if (Successed && !CompletionKey)
 					break;
-				if (!Successed && GetLastError() == ERROR_ABANDONED_WAIT_0)
+				if (completionError == ERROR_ABANDONED_WAIT_0)
 					break;
-				if (!Successed && GetLastError() == ERROR_INVALID_HANDLE)
+				if (completionError == ERROR_INVALID_HANDLE)
 					break;
 				continue;
 			}
@@ -236,6 +257,22 @@ VOID GSIocp::WorkerThread()
 				continue;
 			if (!Successed)
 			{
+				static std::atomic<unsigned long long> acceptFailures{0};
+				static std::atomic<unsigned long long> readFailures{0};
+				static std::atomic<unsigned long long> writeFailures{0};
+				static std::atomic<unsigned long long> otherFailures{0};
+				auto* failures = &otherFailures;
+				const char* operation = "other";
+				switch (OverlappedEx->IoType)
+				{
+				case IO_ACCEPT: failures = &acceptFailures; operation = "accept"; break;
+				case IO_READ: failures = &readFailures; operation = "read"; break;
+				case IO_WRITE: failures = &writeFailures; operation = "write"; break;
+				}
+				const auto total = failures->fetch_add(1, std::memory_order_relaxed) + 1;
+				if (total <= 4 || total % 1024 == 0)
+					SYSLOG().Write("[IOCP/completion-failure] ClientId=%d Operation=%s Error=%lu TotalForOperation=%llu\n",
+						OverlappedEx->ObjectId, operation, completionError, total);
 				OnDisconnected2(OverlappedEx->ObjectId, OverlappedEx->IoType);
 				continue;
 			}

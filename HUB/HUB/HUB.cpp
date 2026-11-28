@@ -3,13 +3,23 @@
 #include "./Command/Command.h"
 #include "Constructor/Constructor.h"
 
-
-
 int main()
 {
-	HubCommand _Command;
-	HubConstructor			_Constructor;
+	try
+	{
+		HubCommand command;
+		HubConstructor server;
+		return EXIT_SUCCESS;
+	}
+	catch (const std::exception& error)
+	{
+		SYSLOG().Write("[HUB/main] Fatal exception detail=%.512s\n", error.what());
+	}
+	catch (...)
+	{
+		SYSLOG().Write("[HUB/main] Fatal unknown exception\n");
+	}
 
-	return 0;
-
+	fprintf(stderr, "HUB stopped after a fatal error. See the system log.\n");
+	return EXIT_FAILURE;
 }

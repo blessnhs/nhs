@@ -34,7 +34,7 @@ void GSLog::Open()
 		sysTime.wYear, sysTime.wMonth, sysTime.wDay, _name.c_str());
 
 	// 열어 둔 채로 쓰므로 다른 프로그램이 읽을 수 있게 FILE_SHARE_READ 허용
-	handle_ = CreateFile(time_log, FILE_APPEND_DATA, FILE_SHARE_READ, 0,
+	handle_ = CreateFile(time_log, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, 0,
 		OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
 	if (handle_ == INVALID_HANDLE_VALUE) { return; }
@@ -71,7 +71,7 @@ bool			GSLog::Write(const char* fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsprintf_s(arg_buffer, MAX_LOG_LEN, fmt, ap);
+	_vsnprintf_s(arg_buffer, MAX_LOG_LEN, _TRUNCATE, fmt, ap);
 	va_end(ap);
 
 	SYSTEMTIME		sysTime;
@@ -79,8 +79,9 @@ bool			GSLog::Write(const char* fmt, ...)
 
 	CHAR			time_log[MAX_LOG_LEN + MAX_LOG_LEN];
 
-	sprintf_s(time_log, MAX_LOG_LEN + MAX_LOG_LEN, "[ %04d-%02d-%02d %02d:%02d:%02d:%03d ] : %s",
-		sysTime.wYear, sysTime.wMonth, sysTime.wDay, sysTime.wHour, sysTime.wMinute, sysTime.wSecond, sysTime.wMilliseconds, arg_buffer);
+	sprintf_s(time_log, MAX_LOG_LEN + MAX_LOG_LEN, "[ %04d-%02d-%02d %02d:%02d:%02d:%03d ] [PID=%lu] %s",
+		sysTime.wYear, sysTime.wMonth, sysTime.wDay, sysTime.wHour, sysTime.wMinute,
+		sysTime.wSecond, sysTime.wMilliseconds, GetCurrentProcessId(), arg_buffer);
 
 	DWORD	length = (DWORD)(strlen(time_log) * sizeof(CHAR));
 
@@ -98,7 +99,7 @@ bool			GSLog::Write(const char* fmt, ...)
 	else
 	{
 		DWORD	write_len = 0;
-		::WriteFile(handle_, time_log, length, &write_len, NULL);
+		result = ::WriteFile(handle_, time_log, length, &write_len, NULL) && write_len == length;
 	}
 
 	LeaveCriticalSection(&cs);
