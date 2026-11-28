@@ -56,6 +56,11 @@ GSClient::~GSClient(void)
 			SYSLOG().Write("Client %lu retired with completions pending (accept=%d, read=%d, write=%d)\n",
 				GetId(), accepts, reads, writes);
 		}
+		else
+		{
+			SYSLOG().Write("alert canRecycleId failed....Client %lu retired with completions pending (accept=%d, read=%d, write=%d)\n",
+				GetId(), accepts, reads, writes);
+		}
 	}
 
 	DebugCount.fetch_sub(1);
