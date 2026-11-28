@@ -53,6 +53,9 @@
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup Condition="'$(ProtocolCppDir)'==''">
+    <ProtocolCppDir>$(ProjectDir)..\..\CCApp\PROTOCOL\Cpp</ProtocolCppDir>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64' And '$(MongoCxxLibraryDir)'==''">
     <MongoCxxLibraryDir>$(ProjectDir)..\LIB\Common\LIB\debug</MongoCxxLibraryDir>
   </PropertyGroup>
@@ -88,14 +91,16 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>../../bin/debug</OutDir>
+    <OutDir>../bin/debug/</OutDir>
     <TargetName>$(ProjectName)_Debug</TargetName>
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;../LIB/Common/boost_1_68_0;../LIB/Common;</IncludePath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;../LIB/Common/boost_1_68_0;../LIB/Common</IncludePath>
     <LibraryPath>$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)</LibraryPath>
+    <PublicIncludeDirectories>
+    </PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>../../bin/release</OutDir>
+    <OutDir>../../bin/release/</OutDir>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;../LIB/Common/boost_1_68_0;../LIB/Common;</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -132,7 +137,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>../LIB/MongoDb;../../Protocol/Cpp;../LIB/Common/Protobuf/include;../LIB/GSNetwork;../LIB/Common</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../LIB/MongoDb;$(ProtocolCppDir);../LIB/Common/Protobuf/include;../LIB/GSNetwork;../LIB/Common</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <PrecompiledHeader>Use</PrecompiledHeader>
     </ClCompile>
@@ -151,7 +156,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>../LIB/MongoDb;../../Protocol/Cpp;../LIB/Common/Protobuf/include;../LIB/GSNetwork;../LIB/Common</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../LIB/MongoDb;$(ProtocolCppDir);../LIB/Common/Protobuf/include;../LIB/GSNetwork;../LIB/Common</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <PrecompiledHeader>Use</PrecompiledHeader>
     </ClCompile>
@@ -165,23 +170,23 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\CLI.GS.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\CLI.GS.pb.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\Enum.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\Enum.pb.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\GS.CLI.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\GS.CLI.pb.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\sample.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\sample.pb.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\Structure.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\Structure.pb.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -208,11 +213,11 @@
     <ClCompile Include="Timer\RankTimerJob.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\PROTOCOL\Cpp\CLI.GS.pb.h" />
-    <ClInclude Include="..\..\PROTOCOL\Cpp\Enum.pb.h" />
-    <ClInclude Include="..\..\PROTOCOL\Cpp\GS.CLI.pb.h" />
-    <ClInclude Include="..\..\PROTOCOL\Cpp\sample.pb.h" />
-    <ClInclude Include="..\..\PROTOCOL\Cpp\Structure.pb.h" />
+    <ClInclude Include="$(ProtocolCppDir)\CLI.GS.pb.h" />
+    <ClInclude Include="$(ProtocolCppDir)\Enum.pb.h" />
+    <ClInclude Include="$(ProtocolCppDir)\GS.CLI.pb.h" />
+    <ClInclude Include="$(ProtocolCppDir)\sample.pb.h" />
+    <ClInclude Include="$(ProtocolCppDir)\Structure.pb.h" />
     <ClInclude Include="Command\Command.h" />
     <ClInclude Include="Constructor\Constructor.h" />
     <ClInclude Include="DB\DBProxy\DBProcess.h" />

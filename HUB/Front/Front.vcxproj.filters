@@ -97,19 +97,19 @@
       <Filter>Timer</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="..\..\PROTOCOL\Cpp\CLI.GS.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\CLI.GS.pb.cc">
       <Filter>Protocol</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\Enum.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\Enum.pb.cc">
       <Filter>Protocol</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\GS.CLI.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\GS.CLI.pb.cc">
       <Filter>Protocol</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\sample.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\sample.pb.cc">
       <Filter>Protocol</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\PROTOCOL\Cpp\Structure.pb.cc">
+    <ClCompile Include="$(ProtocolCppDir)\Structure.pb.cc">
       <Filter>Protocol</Filter>
     </ClCompile>
     <ClCompile Include="ProxyHub\ProxyContainer.cpp">
@@ -166,19 +166,19 @@
       <Filter>Timer</Filter>
     </ClInclude>
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="..\..\PROTOCOL\Cpp\CLI.GS.pb.h">
+    <ClInclude Include="$(ProtocolCppDir)\CLI.GS.pb.h">
       <Filter>Protocol</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\PROTOCOL\Cpp\Enum.pb.h">
+    <ClInclude Include="$(ProtocolCppDir)\Enum.pb.h">
       <Filter>Protocol</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\PROTOCOL\Cpp\GS.CLI.pb.h">
+    <ClInclude Include="$(ProtocolCppDir)\GS.CLI.pb.h">
       <Filter>Protocol</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\PROTOCOL\Cpp\sample.pb.h">
+    <ClInclude Include="$(ProtocolCppDir)\sample.pb.h">
       <Filter>Protocol</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\PROTOCOL\Cpp\Structure.pb.h">
+    <ClInclude Include="$(ProtocolCppDir)\Structure.pb.h">
       <Filter>Protocol</Filter>
     </ClInclude>
     <ClInclude Include="ProxyHub\ProxyContainer.h">

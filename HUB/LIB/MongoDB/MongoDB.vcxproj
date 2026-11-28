@@ -53,6 +53,9 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup Condition="'$(ProtocolCppDir)'==''">
+    <ProtocolCppDir>$(ProjectDir)..\..\..\CCApp\PROTOCOL\Cpp</ProtocolCppDir>
+  </PropertyGroup>
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
   <ImportGroup Label="Shared">
@@ -80,7 +83,7 @@
     <LinkIncremental>true</LinkIncremental>
     <OutDir>../Common/MongoDB/</OutDir>
     <TargetName>$(ProjectName)_d</TargetName>
-    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);../Common/boost_1_68_0;../Common;</IncludePath>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);../Common/boost_1_68_0;../Common;;</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -129,7 +132,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>../../../Protocol/Cpp;../Common/protobuf/include;../MongoDB;../GSNetwork;../Common;../GSFrames</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProtocolCppDir);../Common/protobuf/include;../MongoDB;../GSNetwork;../Common;../GSFrames</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -147,7 +150,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>../../../Protocol/Cpp;../Common/protobuf/include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProtocolCppDir);../Common/protobuf/include</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
